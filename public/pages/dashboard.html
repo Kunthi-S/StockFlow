@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard · StockFlow</title>
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="../css/dashboard.css">
+</head>
+<body>
+  <aside id="sidebar" class="sidebar"></aside>
+
+  <main>
+    <div class="page-header">
+      <div>
+        <h1>Dashboard</h1>
+        <p class="subtitle">Live snapshot of the StockFlow database via the REST API.</p>
+      </div>
+      <button id="refresh-btn" class="btn">Refresh</button>
+    </div>
+
+    <p id="message" class="message"></p>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">Products</div>
+        <div class="stat-value" id="stat-products">–</div>
+        <div class="stat-note">All SKUs</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-label">Below reorder level</div>
+        <div class="stat-value" id="stat-low-stock">–</div>
+        <div class="stat-note">Needs attention</div>
+      </div>
+      <div class="stat-card info">
+        <div class="stat-label">Open orders</div>
+        <div class="stat-value" id="stat-open-orders">–</div>
+        <div class="stat-note">In progress</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Companies</div>
+        <div class="stat-value" id="stat-companies">–</div>
+        <div class="stat-note">Customers &amp; suppliers</div>
+      </div>
+    </div>
+
+    <div class="two-columns">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Low-stock products</h2>
+          <span class="panel-tag">Inventory alerts</span>
+        </div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Name</th>
+                <th>On hand</th>
+                <th>Reorder level</th>
+              </tr>
+            </thead>
+            <tbody id="low-stock-body">
+              <tr><td colspan="4" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Recent orders</h2>
+        </div>
+        <div class="panel-body">
+          <ul id="recent-orders" class="activity">
+            <li class="empty">Loading…</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../app.js"></script>
+  <script src="../js/dashboard.js"></script>
+</body>
+</html>
