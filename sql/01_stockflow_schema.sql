@@ -120,7 +120,7 @@ CREATE TABLE packaged_product (
     product_id      INT UNSIGNED NOT NULL,
     units_per_pack  INT NOT NULL,
     package_type    ENUM('BOX','CASE','BAG','PALLET') NOT NULL,
-    pack_barcode    VARCHAR(14)      NULL,
+    pack_barcode    VARCHAR(14)      NULL, --******
     CONSTRAINT pk_packaged_product  PRIMARY KEY (product_id),
     CONSTRAINT fk_packaged_product  FOREIGN KEY (product_id)
         REFERENCES product (product_id)
