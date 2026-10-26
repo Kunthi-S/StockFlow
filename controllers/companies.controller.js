@@ -22,18 +22,24 @@ exports.getById = async (req, res) => {
   }
 };
 
-// POST /api/companies  { name, email, street, city, postal_code }
+// POST /api/companies  { name, email, street, city, postal_code, phones?: ["021234567", ...] }
 exports.create = async (req, res) => {
   try {
-    const { name, email, street, city, postal_code } = req.body || {};
+    const { name, email, street, city, postal_code, phones } = req.body || {};
     if (!name || !email || !street || !city || !postal_code) {
       return res.status(400).json({ error: 'missing fields' });
     }
-    const [result] = await pool.execute(
-      'INSERT INTO company (name, email, street, city, postal_code) VALUES (?, ?, ?, ?, ?)',
-      [name, email, street, city, postal_code]
-    );
-    res.status(201).json({ company_id: result.insertId });
+    if (phones !== undefined && (!Array.isArray(phones) || phones.some((p) => !p))) {
+      return res.status(400).json({ error: 'phones must be an array of phone numbers' });
+    }
+    // @out lives on one connection, so the CALL and the SELECT share one
+    const companyId = await pool.transaction(async (conn) => {
+      await conn.query('CALL p_insert_company(?, ?, ?, ?, ?, ?, @out)',
+        [name, street, city, postal_code, email, phones ? JSON.stringify(phones) : null]);
+      const [[{ id }]] = await conn.query('SELECT @out AS id');
+      return id;
+    });
+    res.status(201).json({ company_id: companyId });
   } catch (err) {
     res.status(500).json({ error: err.message, sql: err.sql });
   }
@@ -46,25 +52,23 @@ exports.update = async (req, res) => {
     if (!name || !email || !street || !city || !postal_code) {
       return res.status(400).json({ error: 'missing fields' });
     }
-    const [result] = await pool.execute(
-      'UPDATE company SET name = ?, email = ?, street = ?, city = ?, postal_code = ? WHERE company_id = ?',
-      [name, email, street, city, postal_code, req.params.id]
-    );
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'company not found' });
+    const [rows] = await pool.execute('SELECT 1 FROM company WHERE company_id = ?', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'company not found' });
+    await pool.query('CALL p_update_company(?, ?, ?, ?, ?, ?)', [req.params.id, name, street, city, postal_code, email]);
     res.json({ message: 'company updated' });
   } catch (err) {
     res.status(500).json({ error: err.message, sql: err.sql });
   }
 };
 
-// DELETE /api/companies/:id  (phones are deleted first so the FK does not block it)
+// DELETE /api/companies/:id  (phones go via ON DELETE CASCADE)
 exports.remove = async (req, res) => {
   try {
     const [orders] = await pool.execute('SELECT 1 FROM orders WHERE company_id = ? LIMIT 1', [req.params.id]);
     if (orders.length > 0) return res.status(409).json({ error: 'company still has orders' });
-    await pool.execute('DELETE FROM company_phone WHERE company_id = ?', [req.params.id]);
-    const [result] = await pool.execute('DELETE FROM company WHERE company_id = ?', [req.params.id]);
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'company not found' });
+    const [rows] = await pool.execute('SELECT 1 FROM company WHERE company_id = ?', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'company not found' });
+    await pool.query('CALL p_delete_company(?)', [req.params.id]);
     res.json({ message: 'company deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message, sql: err.sql });
@@ -89,10 +93,7 @@ exports.addPhone = async (req, res) => {
   try {
     const { contact_phone } = req.body || {};
     if (!contact_phone) return res.status(400).json({ error: 'missing fields' });
-    await pool.execute(
-      'INSERT INTO company_phone (company_id, contact_phone) VALUES (?, ?)',
-      [req.params.id, contact_phone]
-    );
+    await pool.query('CALL p_add_company_phone(?, ?)', [req.params.id, contact_phone]);
     res.status(201).json({ message: 'phone added' });
   } catch (err) {
     res.status(500).json({ error: err.message, sql: err.sql });
@@ -102,11 +103,12 @@ exports.addPhone = async (req, res) => {
 // DELETE /api/companies/:id/phones/:phone
 exports.removePhone = async (req, res) => {
   try {
-    const [result] = await pool.execute(
-      'DELETE FROM company_phone WHERE company_id = ? AND contact_phone = ?',
+    const [rows] = await pool.execute(
+      'SELECT 1 FROM company_phone WHERE company_id = ? AND contact_phone = ?',
       [req.params.id, req.params.phone]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'phone not found' });
+    if (rows.length === 0) return res.status(404).json({ error: 'phone not found' });
+    await pool.query('CALL p_delete_company_phone(?, ?)', [req.params.id, req.params.phone]);
     res.json({ message: 'phone deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message, sql: err.sql });

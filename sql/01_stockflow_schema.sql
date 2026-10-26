@@ -1,10 +1,11 @@
 -- 01_stockflow_schema.sql - placeholder
 -- =====================================================================
---  StockFlow: physical schema, revision 2  (MySQL 8.0.16+ / MariaDB 10.5+)
+--  StockFlow: physical schema, revision 3  (MySQL 8.0.16+ / MariaDB 10.6+)
 --  Source: StockFlow_phy_rela_2.xlsx
+--  Revision 3: HAZARDOUS, PERISHABLE and LOT removed.
 --  Tables, keys, indexes and CHECK constraints only.
---  Triggers, procedures and views live in stockflow_routines.sql
---  (run this file first, then that one).
+--  Triggers and procedures live in 02_stockflow_triggers.sql
+--  (run this file first, then that one, then 03_stockflow_sample_data.sql).
 -- =====================================================================
 
 DROP DATABASE IF EXISTS stockflow;
@@ -31,7 +32,7 @@ CREATE TABLE company_phone (
     CONSTRAINT pk_company_phone PRIMARY KEY (company_id, contact_phone),
     CONSTRAINT fk_phone_company FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE CASCADE --update/ delete according to company_id
+        ON UPDATE CASCADE ON DELETE CASCADE  -- update/delete according to company_id
 );
 
 -- ---------------------------------------------------------------------
@@ -48,7 +49,7 @@ CREATE TABLE orders (
     CONSTRAINT pk_orders          PRIMARY KEY (order_id),
     CONSTRAINT fk_orders_company  FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE RESTRICT, --Prevents deleting a company if any orders still reference it.
+        ON UPDATE CASCADE ON DELETE RESTRICT,  -- prevents deleting a company if any orders still reference it.
     CONSTRAINT ck_orders_total    CHECK (total_amount >= 0),
     INDEX idx_orders_company (company_id),
     INDEX idx_orders_status_date (status, order_date)
@@ -120,14 +121,15 @@ CREATE TABLE packaged_product (
     product_id      INT UNSIGNED NOT NULL,
     units_per_pack  INT NOT NULL,
     package_type    ENUM('BOX','CASE','BAG','PALLET') NOT NULL,
-    pack_barcode    VARCHAR(14)      NULL, --******
+    pack_barcode    VARCHAR(14)      NULL,  -- EAN-8 / UPC-A / EAN-13 / GTIN-14
     CONSTRAINT pk_packaged_product  PRIMARY KEY (product_id),
+    CONSTRAINT uq_pack_barcode      UNIQUE (pack_barcode),
     CONSTRAINT fk_packaged_product  FOREIGN KEY (product_id)
         REFERENCES product (product_id)
         ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT ck_units_per_pack    CHECK (units_per_pack > 0),
     CONSTRAINT ck_pack_barcode      CHECK (pack_barcode IS NULL
-                                           OR pack_barcode REGEXP '^[0-9]{14}$')
+                                           OR pack_barcode REGEXP '^([0-9]{8}|[0-9]{12,14})$')
 );
 
 CREATE TABLE weighed_product (
@@ -145,7 +147,7 @@ CREATE TABLE weighed_product (
 
 CREATE TABLE counted_product (
     product_id     INT UNSIGNED NOT NULL,
-    unit_label     ENUM('PIECE','UNIT','SET','PAIR') NOT NULL,
+    unit_label     VARCHAR(20)  NOT NULL,                -- piece, pair, ...
     is_serialized  BOOLEAN      NOT NULL DEFAULT FALSE,
     CONSTRAINT pk_counted_product  PRIMARY KEY (product_id),
     CONSTRAINT fk_counted_product  FOREIGN KEY (product_id)
@@ -154,60 +156,16 @@ CREATE TABLE counted_product (
 );
 
 -- ---------------------------------------------------------------------
--- Specialization 2: PRODUCT -> HAZARDOUS / PERISHABLE  (overlapping, partial)
--- ---------------------------------------------------------------------
-CREATE TABLE hazardous_product (
-    product_id    INT UNSIGNED NOT NULL,
-    un_number     CHAR(4)      NOT NULL,
-    hazard_class  VARCHAR(10)  NOT NULL,
-    msds_ref      VARCHAR(500) NOT NULL,
-    CONSTRAINT pk_hazardous_product  PRIMARY KEY (product_id),
-    CONSTRAINT fk_hazardous_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_un_number          CHECK (un_number REGEXP '^[0-9]{4}$'),
-    CONSTRAINT ck_hazard_class       CHECK (hazard_class REGEXP '^[1-9](\\.[1-6])?$')
-);
-
-CREATE TABLE perishable_product (
-    product_id       INT UNSIGNED NOT NULL,
-    shelf_life_days  SMALLINT     NOT NULL,
-    CONSTRAINT pk_perishable_product  PRIMARY KEY (product_id),
-    CONSTRAINT fk_perishable_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_shelf_life          CHECK (shelf_life_days > 0)
-);
-
--- ---------------------------------------------------------------------
--- LOT  (weak entity; PERISHABLE_PRODUCT 1 : M LOT via identifying "has_lot")
--- ---------------------------------------------------------------------
-CREATE TABLE lot (
-    product_id          INT UNSIGNED  NOT NULL,
-    lot_no              VARCHAR(30)   NOT NULL,         -- partial key
-    received_date       DATE          NOT NULL,
-    expiry_date         DATE          NOT NULL,         -- trigger fills it when not supplied
-    quantity_remaining  DECIMAL(12,3) NOT NULL DEFAULT 0,
-    CONSTRAINT pk_lot             PRIMARY KEY (product_id, lot_no),
-    CONSTRAINT fk_lot_perishable  FOREIGN KEY (product_id)
-        REFERENCES perishable_product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_lot_qty         CHECK (quantity_remaining >= 0),
-    CONSTRAINT ck_lot_dates       CHECK (expiry_date >= received_date),
-    INDEX idx_lot_expiry (expiry_date)
-);
-
--- ---------------------------------------------------------------------
 -- LOCATION
 -- ---------------------------------------------------------------------
 CREATE TABLE location (
     location_id     INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     code            VARCHAR(15)   NOT NULL,              -- e.g. A-03-2
-    capacity_slots  INT UNSIGNED  NOT NULL,
+    capacity_units  INT           NOT NULL,              -- max base units the bin can hold
     aisle           VARCHAR(10)   NOT NULL,
     CONSTRAINT pk_location        PRIMARY KEY (location_id),
     CONSTRAINT uq_location_code   UNIQUE (code),
-    CONSTRAINT ck_location_cap    CHECK (capacity_slots > 0)
+    CONSTRAINT ck_location_cap    CHECK (capacity_units > 0)
 );
 
 -- ---------------------------------------------------------------------

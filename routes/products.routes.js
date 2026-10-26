@@ -9,8 +9,5 @@ router.get('/:id', productController.getById);             // GET    /api/produc
 router.post('/', productController.create);                // POST   /api/products
 router.put('/:id', productController.update);              // PUT    /api/products/:id
 router.delete('/:id', productController.remove);           // DELETE /api/products/:id
-router.get('/:id/lots', productController.getLots);        // GET    /api/products/:id/lots
-router.post('/:id/lots', productController.addLot);        // POST   /api/products/:id/lots
-router.delete('/:id/lots/:lotNo', productController.removeLot);   // DELETE /api/products/:id/lots/:lotNo
 
 module.exports = router;
