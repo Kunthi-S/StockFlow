@@ -11,5 +11,8 @@ router.delete('/:id', orderController.remove);              // DELETE /api/order
 router.get('/:id/items', orderController.getItems);         // GET    /api/orders/:id/items
 router.post('/:id/items', orderController.addItem);         // POST   /api/orders/:id/items
 router.delete('/:id/items/:productId', orderController.removeItem);   // DELETE /api/orders/:id/items/:productId
+router.get('/:id/shipment', orderController.getShipment);           // GET    /api/orders/:id/shipment
+router.put('/:id/shipment', orderController.saveShipment);          // PUT    /api/orders/:id/shipment
+router.delete('/:id/shipment', orderController.removeShipment);     // DELETE /api/orders/:id/shipment
 
 module.exports = router;
