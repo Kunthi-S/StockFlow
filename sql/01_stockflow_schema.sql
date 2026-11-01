@@ -31,7 +31,7 @@ CREATE TABLE company_phone (
     CONSTRAINT pk_company_phone PRIMARY KEY (company_id, contact_phone),
     CONSTRAINT fk_phone_company FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE CASCADE --update/ delete according to company_id
+        ON UPDATE CASCADE ON DELETE CASCADE -- update/ delete according to company_id
 );
 
 -- ---------------------------------------------------------------------
@@ -48,7 +48,7 @@ CREATE TABLE orders (
     CONSTRAINT pk_orders          PRIMARY KEY (order_id),
     CONSTRAINT fk_orders_company  FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE RESTRICT, --Prevents deleting a company if any orders still reference it.
+        ON UPDATE CASCADE ON DELETE RESTRICT, -- Prevents deleting a company if any orders still reference it.
     CONSTRAINT ck_orders_total    CHECK (total_amount >= 0),
     INDEX idx_orders_company (company_id),
     INDEX idx_orders_status_date (status, order_date)
@@ -120,7 +120,7 @@ CREATE TABLE packaged_product (
     product_id      INT UNSIGNED NOT NULL,
     units_per_pack  INT NOT NULL,
     package_type    ENUM('BOX','CASE','BAG','PALLET') NOT NULL,
-    pack_barcode    VARCHAR(14)      NULL, --******
+    pack_barcode    VARCHAR(14)      NULL, -- ******
     CONSTRAINT pk_packaged_product  PRIMARY KEY (product_id),
     CONSTRAINT fk_packaged_product  FOREIGN KEY (product_id)
         REFERENCES product (product_id)

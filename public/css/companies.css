@@ -1,0 +1,57 @@
+/* public/css/companies.css - styles only used by the Companies page */
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-actions [hidden] {
+  display: none;
+}
+
+#search {
+  width: 240px;
+}
+
+.actions {
+  white-space: nowrap;
+}
+
+.phones-cell {
+  min-width: 190px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px 4px 0;
+  padding: 1px 4px 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.chip-x {
+  padding: 0 4px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip-x:hover {
+  color: var(--red);
+}
+
+.phone-form {
+  display: flex;
+  gap: 4px;
+}
+
+.phone-form input {
+  width: 120px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
