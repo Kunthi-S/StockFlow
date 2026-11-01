@@ -153,49 +153,6 @@ CREATE TABLE counted_product (
         ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- ---------------------------------------------------------------------
--- Specialization 2: PRODUCT -> HAZARDOUS / PERISHABLE  (overlapping, partial)
--- ---------------------------------------------------------------------
-CREATE TABLE hazardous_product (
-    product_id    INT UNSIGNED NOT NULL,
-    un_number     CHAR(4)      NOT NULL,
-    hazard_class  VARCHAR(10)  NOT NULL,
-    msds_ref      VARCHAR(500) NOT NULL,
-    CONSTRAINT pk_hazardous_product  PRIMARY KEY (product_id),
-    CONSTRAINT fk_hazardous_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_un_number          CHECK (un_number REGEXP '^[0-9]{4}$'),
-    CONSTRAINT ck_hazard_class       CHECK (hazard_class REGEXP '^[1-9](\\.[1-6])?$')
-);
-
-CREATE TABLE perishable_product (
-    product_id       INT UNSIGNED NOT NULL,
-    shelf_life_days  SMALLINT     NOT NULL,
-    CONSTRAINT pk_perishable_product  PRIMARY KEY (product_id),
-    CONSTRAINT fk_perishable_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_shelf_life          CHECK (shelf_life_days > 0)
-);
-
--- ---------------------------------------------------------------------
--- LOT  (weak entity; PERISHABLE_PRODUCT 1 : M LOT via identifying "has_lot")
--- ---------------------------------------------------------------------
-CREATE TABLE lot (
-    product_id          INT UNSIGNED  NOT NULL,
-    lot_no              VARCHAR(30)   NOT NULL,         -- partial key
-    received_date       DATE          NOT NULL,
-    expiry_date         DATE          NOT NULL,         -- trigger fills it when not supplied
-    quantity_remaining  DECIMAL(12,3) NOT NULL DEFAULT 0,
-    CONSTRAINT pk_lot             PRIMARY KEY (product_id, lot_no),
-    CONSTRAINT fk_lot_perishable  FOREIGN KEY (product_id)
-        REFERENCES perishable_product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_lot_qty         CHECK (quantity_remaining >= 0),
-    CONSTRAINT ck_lot_dates       CHECK (expiry_date >= received_date),
-    INDEX idx_lot_expiry (expiry_date)
-);
 
 -- ---------------------------------------------------------------------
 -- LOCATION
