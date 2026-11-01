@@ -9,7 +9,9 @@ const API_BASE = '/api';
 // Sidebar links (all pages live in public/pages/). To add a new page, add one line here.
 const PAGES = [
   { file: 'dashboard.html', label: 'Dashboard' },
-  { file: 'orders.html',    label: 'Orders' }
+  { file: 'orders.html',    label: 'Orders' },
+  { file: 'products.html',  label: 'Products' },
+  { file: 'companies.html', label: 'Companies' }
 ];
 
 // Fills <aside id="sidebar"></aside> and highlights the current page
