@@ -1,1 +1,322 @@
-/* public/style.css - placeholder */
+/* public/style.css - SHARED styles used by every page.
+   Only put things here that more than one page needs (colors, sidebar, panels,
+   tables, forms, buttons). Page-only styles go in css/<page>.css.
+   Talk to the other frontend person before changing this file. */
+
+:root {
+  --bg: #f5f6fa;
+  --sidebar: #ffffff;
+  --panel: #ffffff;
+  --border: #e2e4ec;
+  --text: #1f2330;
+  --muted: #6b7084;
+  --accent: #7c5cd6;
+  --accent-text: #ffffff;
+  --green: #2f9e4f;
+  --blue: #3b6fd8;
+  --yellow: #b8860b;
+  --red: #d64545;
+  --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.tagline {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.sidebar nav {
+  flex: 1;
+  padding: 12px 0;
+}
+
+.sidebar nav a {
+  display: block;
+  padding: 9px 16px;
+  color: var(--text);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+
+.sidebar nav a:hover {
+  background: #f0f1f6;
+}
+
+.sidebar nav a.active {
+  background: #efeafc;
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.api-status {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.api-status::before {
+  content: "● ";
+}
+
+.api-status.ok::before {
+  color: var(--green);
+}
+
+.api-status.down::before {
+  color: var(--red);
+}
+
+/* ---------- Main area ---------- */
+
+main {
+  flex: 1;
+  padding: 24px 28px;
+  max-width: 1100px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.panel-tag {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.panel-body {
+  padding: 12px 16px;
+}
+
+/* ---------- Tables ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: normal;
+  text-transform: uppercase;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #eef0f4;
+}
+
+tbody tr:hover {
+  background: #f7f8fb;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 18px;
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.badge.in {
+  color: var(--blue);
+}
+
+.badge.out {
+  color: var(--green);
+}
+
+/* ---------- Forms & buttons ---------- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+input,
+select {
+  padding: 7px 8px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  color-scheme: light;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn {
+  padding: 7px 14px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+.btn-small {
+  padding: 3px 10px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-small:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ---------- Success / error message ---------- */
+
+.message {
+  display: none;
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin: 0 0 16px;
+}
+
+.message.success {
+  display: block;
+  background: #e6f5ea;
+  color: var(--green);
+}
+
+.message.error {
+  display: block;
+  background: #fbe9e9;
+  color: var(--red);
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 800px) {
+  body {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+  }
+
+  .sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 0;
+  }
+
+  main {
+    padding: 16px;
+  }
+
+  .panel-body {
+    overflow-x: auto;
+  }
+}
