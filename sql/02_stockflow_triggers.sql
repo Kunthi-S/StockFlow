@@ -261,184 +261,93 @@ BEGIN
 END //
 DELIMITER ;
 
-
-
-
-
-DROP PROCEDURE IF EXISTS p_insert_product_base;
-DROP PROCEDURE IF EXISTS p_insert_packaged_product;
-DROP PROCEDURE IF EXISTS p_insert_weighed_product;
-DROP PROCEDURE IF EXISTS p_insert_counted_product;
-DROP PROCEDURE IF EXISTS p_add_hazardous;
-DROP PROCEDURE IF EXISTS p_add_perishable;
-DROP PROCEDURE IF EXISTS p_add_lot;
+DROP PROCEDURE IF EXISTS p_insert_product;
 DROP PROCEDURE IF EXISTS p_update_product;
-DROP PROCEDURE IF EXISTS p_update_packaged_product;
-DROP PROCEDURE IF EXISTS p_update_weighed_product;
-DROP PROCEDURE IF EXISTS p_update_counted_product;
-DROP PROCEDURE IF EXISTS p_update_hazardous;
-DROP PROCEDURE IF EXISTS p_delete_hazardous;
-DROP PROCEDURE IF EXISTS p_update_perishable;
-DROP PROCEDURE IF EXISTS p_delete_perishable;
-DROP PROCEDURE IF EXISTS p_update_lot;
-DROP PROCEDURE IF EXISTS p_delete_lot;
 DROP PROCEDURE IF EXISTS p_delete_product;
-DROP TRIGGER IF EXISTS trg_stored_at_insert;
-DROP TRIGGER IF EXISTS trg_stored_at_update;
-DROP TRIGGER IF EXISTS trg_stored_at_delete;
+DROP TRIGGER   IF EXISTS trg_packaged_disjoint;
+DROP TRIGGER   IF EXISTS trg_weighed_disjoint;
+DROP TRIGGER   IF EXISTS trg_counted_disjoint;
+DROP TRIGGER   IF EXISTS trg_stored_at_insert;
+DROP TRIGGER   IF EXISTS trg_stored_at_update;
+DROP TRIGGER   IF EXISTS trg_stored_at_delete;
 
 -- ---------------------------------------------------------------------
--- PROCEDURE: Add product (base row, called by the three typed procedures)
--- quantity_on_hand is trigger-maintained (stored_at), so it is not set here
+-- PROCEDURE: Add product (any type)
+--   p_type  : 'PACKAGED' | 'WEIGHED' | 'COUNTED'
+--   p_attrs : JSON with the subtype's attributes
+--     PACKAGED {"units_per_pack":12, "package_type":"CASE", "pack_barcode":"12345678901234"}
+--     WEIGHED  {"tare_weight_kg":0.1, "avg_net_weight_kg":5, "unit_of_measure":"KG"}
+--     COUNTED  {"unit_label":"PIECE", "is_serialized":true}
+--   pack_barcode and is_serialized are optional.
+-- quantity_on_hand is trigger-maintained (stored_at), so it is not set here.
 -- ---------------------------------------------------------------------
 DELIMITER //
-CREATE PROCEDURE p_insert_product_base(
+CREATE PROCEDURE p_insert_product(
     IN  p_sku            VARCHAR(30),
     IN  p_name           VARCHAR(150),
     IN  p_category       VARCHAR(60),
     IN  p_standard_cost  DECIMAL(12,4),
     IN  p_reorder_level  DECIMAL(12,3),
+    IN  p_type           VARCHAR(10),
+    IN  p_attrs          JSON,
     OUT p_product_id     INT UNSIGNED
 )
 BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
     INSERT INTO product (sku, name, category, standard_cost, reorder_level)
     VALUES (p_sku, p_name, p_category, p_standard_cost, p_reorder_level);
-
     SET p_product_id = LAST_INSERT_ID();
+
+    CASE UPPER(p_type)
+        WHEN 'PACKAGED' THEN
+            INSERT INTO packaged_product (product_id, units_per_pack, package_type, pack_barcode)
+            VALUES (
+                p_product_id,
+                JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.units_per_pack')),
+                JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.package_type')),
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.pack_barcode')), 'null')
+            );
+
+        WHEN 'WEIGHED' THEN
+            INSERT INTO weighed_product (product_id, tare_weight_kg, avg_net_weight_kg, unit_of_measure)
+            VALUES (
+                p_product_id,
+                JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.tare_weight_kg')),
+                JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.avg_net_weight_kg')),
+                JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.unit_of_measure'))
+            );
+
+        WHEN 'COUNTED' THEN
+            INSERT INTO counted_product (product_id, unit_label, is_serialized)
+            VALUES (
+                p_product_id,
+                JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.unit_label')),
+                COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.is_serialized')) IN ('true', '1'), FALSE)
+            );
+
+        ELSE
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'p_type must be PACKAGED, WEIGHED or COUNTED';
+    END CASE;
+
+    COMMIT;
 END //
 DELIMITER ;
 
 -- ---------------------------------------------------------------------
--- PROCEDURE: Add product -> packaged (disjoint, total)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_insert_packaged_product(
-    IN  p_sku             VARCHAR(30),
-    IN  p_name            VARCHAR(150),
-    IN  p_category        VARCHAR(60),
-    IN  p_standard_cost   DECIMAL(12,4),
-    IN  p_reorder_level   DECIMAL(12,3),
-    IN  p_units_per_pack  INT,
-    IN  p_package_type    ENUM('BOX','CASE','BAG','PALLET'),
-    IN  p_pack_barcode    VARCHAR(14),
-    OUT p_product_id      INT UNSIGNED
-)
-BEGIN
-    CALL p_insert_product_base(p_sku, p_name, p_category, p_standard_cost,
-                               p_reorder_level, p_product_id);
-
-    INSERT INTO packaged_product (product_id, units_per_pack, package_type, pack_barcode)
-    VALUES (p_product_id, p_units_per_pack, p_package_type, p_pack_barcode);
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Add product -> weighed (disjoint, total)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_insert_weighed_product(
-    IN  p_sku                VARCHAR(30),
-    IN  p_name               VARCHAR(150),
-    IN  p_category           VARCHAR(60),
-    IN  p_standard_cost      DECIMAL(12,4),
-    IN  p_reorder_level      DECIMAL(12,3),
-    IN  p_tare_weight_kg     DECIMAL(8,3),
-    IN  p_avg_net_weight_kg  DECIMAL(8,3),
-    IN  p_unit_of_measure    ENUM('KG','G','L','ML'),
-    OUT p_product_id         INT UNSIGNED
-)
-BEGIN
-    CALL p_insert_product_base(p_sku, p_name, p_category, p_standard_cost,
-                               p_reorder_level, p_product_id);
-
-    INSERT INTO weighed_product (product_id, tare_weight_kg, avg_net_weight_kg, unit_of_measure)
-    VALUES (p_product_id, p_tare_weight_kg, p_avg_net_weight_kg, p_unit_of_measure);
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Add product -> counted (disjoint, total)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_insert_counted_product(
-    IN  p_sku            VARCHAR(30),
-    IN  p_name           VARCHAR(150),
-    IN  p_category       VARCHAR(60),
-    IN  p_standard_cost  DECIMAL(12,4),
-    IN  p_reorder_level  DECIMAL(12,3),
-    IN  p_unit_label     VARCHAR(20),
-    IN  p_is_serialized  BOOLEAN,
-    OUT p_product_id     INT UNSIGNED
-)
-BEGIN
-    CALL p_insert_product_base(p_sku, p_name, p_category, p_standard_cost,
-                               p_reorder_level, p_product_id);
-
-    INSERT INTO counted_product (product_id, unit_label, is_serialized)
-    VALUES (p_product_id, p_unit_label, COALESCE(p_is_serialized, FALSE));
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> mark hazardous (overlapping, partial)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_add_hazardous(
-    IN p_product_id    INT UNSIGNED,
-    IN p_un_number     CHAR(4),
-    IN p_hazard_class  VARCHAR(10),
-    IN p_msds_ref      VARCHAR(500)
-)
-BEGIN
-    INSERT INTO hazardous_product (product_id, un_number, hazard_class, msds_ref)
-    VALUES (p_product_id, p_un_number, p_hazard_class, p_msds_ref);
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> mark perishable (overlapping, partial)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_add_perishable(
-    IN p_product_id       INT UNSIGNED,
-    IN p_shelf_life_days  SMALLINT
-)
-BEGIN
-    INSERT INTO perishable_product (product_id, shelf_life_days)
-    VALUES (p_product_id, p_shelf_life_days);
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Add lot (weak entity of PERISHABLE_PRODUCT via "has_lot")
--- p_expiry_date NULL -> received_date + shelf_life_days
--- p_quantity_remaining NULL -> 0
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_add_lot(
-    IN p_product_id          INT UNSIGNED,
-    IN p_lot_no              VARCHAR(30),
-    IN p_received_date       DATE,
-    IN p_expiry_date         DATE,
-    IN p_quantity_remaining  DECIMAL(12,3)
-)
-BEGIN
-    DECLARE v_shelf_life_days SMALLINT;
-
-    SELECT shelf_life_days INTO v_shelf_life_days
-      FROM perishable_product
-     WHERE product_id = p_product_id;
-
-    INSERT INTO lot (product_id, lot_no, received_date, expiry_date, quantity_remaining)
-    VALUES (p_product_id, p_lot_no, p_received_date,
-            COALESCE(p_expiry_date, DATE_ADD(p_received_date, INTERVAL v_shelf_life_days DAY)),
-            COALESCE(p_quantity_remaining, 0));
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product (sku / name / category / cost / reorder level)
--- quantity_on_hand is trigger-maintained (stored_at), so it is not set here
+-- PROCEDURE: Edit product (base fields + subtype fields in one call)
+--   Base fields: pass NULL to keep the current value.
+--   p_attrs    : only the keys you want to change; missing keys keep their
+--                value. Pass NULL or '{}' to leave subtype fields unchanged.
+--                {"pack_barcode": null} clears the barcode.
+--   The product's type is detected automatically (type cannot be changed).
 -- ---------------------------------------------------------------------
 DELIMITER //
 CREATE PROCEDURE p_update_product(
@@ -447,169 +356,64 @@ CREATE PROCEDURE p_update_product(
     IN p_name           VARCHAR(150),
     IN p_category       VARCHAR(60),
     IN p_standard_cost  DECIMAL(12,4),
-    IN p_reorder_level  DECIMAL(12,3)
+    IN p_reorder_level  DECIMAL(12,3),
+    IN p_attrs          JSON
 )
 BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    IF NOT EXISTS (SELECT 1 FROM product WHERE product_id = p_product_id) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Product not found';
+    END IF;
+
+    SET p_attrs = COALESCE(p_attrs, '{}');
+
+    START TRANSACTION;
+
     UPDATE product
-       SET sku = p_sku, name = p_name, category = p_category,
-           standard_cost = p_standard_cost, reorder_level = p_reorder_level
+       SET sku           = COALESCE(p_sku,           sku),
+           name          = COALESCE(p_name,          name),
+           category      = COALESCE(p_category,      category),
+           standard_cost = COALESCE(p_standard_cost, standard_cost),
+           reorder_level = COALESCE(p_reorder_level, reorder_level)
      WHERE product_id = p_product_id;
+
+    IF EXISTS (SELECT 1 FROM packaged_product WHERE product_id = p_product_id) THEN
+        UPDATE packaged_product
+           SET units_per_pack = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.units_per_pack')), units_per_pack),
+               package_type   = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.package_type')),   package_type),
+               pack_barcode   = IF(JSON_CONTAINS_PATH(p_attrs, 'one', '$.pack_barcode'),
+                                   NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.pack_barcode')), 'null'),
+                                   pack_barcode)
+         WHERE product_id = p_product_id;
+
+    ELSEIF EXISTS (SELECT 1 FROM weighed_product WHERE product_id = p_product_id) THEN
+        UPDATE weighed_product
+           SET tare_weight_kg    = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.tare_weight_kg')),    tare_weight_kg),
+               avg_net_weight_kg = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.avg_net_weight_kg')), avg_net_weight_kg),
+               unit_of_measure   = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.unit_of_measure')),   unit_of_measure)
+         WHERE product_id = p_product_id;
+
+    ELSEIF EXISTS (SELECT 1 FROM counted_product WHERE product_id = p_product_id) THEN
+        UPDATE counted_product
+           SET unit_label    = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.unit_label')), unit_label),
+               is_serialized = IF(JSON_CONTAINS_PATH(p_attrs, 'one', '$.is_serialized'),
+                                  JSON_UNQUOTE(JSON_EXTRACT(p_attrs, '$.is_serialized')) IN ('true', '1'),
+                                  is_serialized)
+         WHERE product_id = p_product_id;
+    END IF;
+
+    COMMIT;
 END //
 DELIMITER ;
 
 -- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> packaged details
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_update_packaged_product(
-    IN p_product_id      INT UNSIGNED,
-    IN p_units_per_pack  INT,
-    IN p_package_type    ENUM('BOX','CASE','BAG','PALLET'),
-    IN p_pack_barcode    VARCHAR(14)
-)
-BEGIN
-    UPDATE packaged_product
-       SET units_per_pack = p_units_per_pack,
-           package_type = p_package_type,
-           pack_barcode = p_pack_barcode
-     WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> weighed details
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_update_weighed_product(
-    IN p_product_id         INT UNSIGNED,
-    IN p_tare_weight_kg     DECIMAL(8,3),
-    IN p_avg_net_weight_kg  DECIMAL(8,3),
-    IN p_unit_of_measure    ENUM('KG','G','L','ML')
-)
-BEGIN
-    UPDATE weighed_product
-       SET tare_weight_kg = p_tare_weight_kg,
-           avg_net_weight_kg = p_avg_net_weight_kg,
-           unit_of_measure = p_unit_of_measure
-     WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> counted details
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_update_counted_product(
-    IN p_product_id     INT UNSIGNED,
-    IN p_unit_label     VARCHAR(20),
-    IN p_is_serialized  BOOLEAN
-)
-BEGIN
-    UPDATE counted_product
-       SET unit_label = p_unit_label,
-           is_serialized = COALESCE(p_is_serialized, FALSE)
-     WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> hazardous details
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_update_hazardous(
-    IN p_product_id    INT UNSIGNED,
-    IN p_un_number     CHAR(4),
-    IN p_hazard_class  VARCHAR(10),
-    IN p_msds_ref      VARCHAR(500)
-)
-BEGIN
-    UPDATE hazardous_product
-       SET un_number = p_un_number,
-           hazard_class = p_hazard_class,
-           msds_ref = p_msds_ref
-     WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> unmark hazardous (product itself is kept)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_delete_hazardous(
-    IN p_product_id INT UNSIGNED
-)
-BEGIN
-    DELETE FROM hazardous_product WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> perishable details
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_update_perishable(
-    IN p_product_id       INT UNSIGNED,
-    IN p_shelf_life_days  SMALLINT
-)
-BEGIN
-    UPDATE perishable_product
-       SET shelf_life_days = p_shelf_life_days
-     WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit product -> unmark perishable (product itself is kept)
--- Its lots go via ON DELETE CASCADE
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_delete_perishable(
-    IN p_product_id INT UNSIGNED
-)
-BEGIN
-    DELETE FROM perishable_product WHERE product_id = p_product_id;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Edit lot (received / expiry date / quantity remaining)
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_update_lot(
-    IN p_product_id          INT UNSIGNED,
-    IN p_lot_no              VARCHAR(30),
-    IN p_received_date       DATE,
-    IN p_expiry_date         DATE,
-    IN p_quantity_remaining  DECIMAL(12,3)
-)
-BEGIN
-    UPDATE lot
-       SET received_date = p_received_date,
-           expiry_date = p_expiry_date,
-           quantity_remaining = p_quantity_remaining
-     WHERE product_id = p_product_id
-       AND lot_no = p_lot_no;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Delete lot
--- ---------------------------------------------------------------------
-DELIMITER //
-CREATE PROCEDURE p_delete_lot(
-    IN p_product_id  INT UNSIGNED,
-    IN p_lot_no      VARCHAR(30)
-)
-BEGIN
-    DELETE FROM lot
-    WHERE product_id = p_product_id
-      AND lot_no = p_lot_no;
-END //
-DELIMITER ;
-
--- ---------------------------------------------------------------------
--- PROCEDURE: Delete product button
--- Subtype, hazardous, perishable and lot rows go via ON DELETE CASCADE;
+-- PROCEDURE: Delete product
+-- Subtype rows go via ON DELETE CASCADE;
 -- stock (stored_at) and order lines (order_item) block it via ON DELETE RESTRICT
 -- ---------------------------------------------------------------------
 DELIMITER //
@@ -618,11 +422,54 @@ CREATE PROCEDURE p_delete_product(
 )
 BEGIN
     DELETE FROM product WHERE product_id = p_product_id;
+
+    IF ROW_COUNT() = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Product not found';
+    END IF;
 END //
 DELIMITER ;
 
 -- ---------------------------------------------------------------------
--- TRIGGER: Update product quantity_on_hand after inserting stored_at
+-- TRIGGERS: Disjoint specialization
+-- A product may have a row in only ONE of the three subtype tables
+-- ---------------------------------------------------------------------
+DELIMITER //
+CREATE TRIGGER trg_packaged_disjoint
+BEFORE INSERT ON packaged_product
+FOR EACH ROW
+BEGIN
+    IF EXISTS (SELECT 1 FROM weighed_product WHERE product_id = NEW.product_id)
+    OR EXISTS (SELECT 1 FROM counted_product WHERE product_id = NEW.product_id) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Product already has another subtype (disjoint)';
+    END IF;
+END //
+
+CREATE TRIGGER trg_weighed_disjoint
+BEFORE INSERT ON weighed_product
+FOR EACH ROW
+BEGIN
+    IF EXISTS (SELECT 1 FROM packaged_product WHERE product_id = NEW.product_id)
+    OR EXISTS (SELECT 1 FROM counted_product  WHERE product_id = NEW.product_id) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Product already has another subtype (disjoint)';
+    END IF;
+END //
+
+CREATE TRIGGER trg_counted_disjoint
+BEFORE INSERT ON counted_product
+FOR EACH ROW
+BEGIN
+    IF EXISTS (SELECT 1 FROM packaged_product WHERE product_id = NEW.product_id)
+    OR EXISTS (SELECT 1 FROM weighed_product  WHERE product_id = NEW.product_id) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Product already has another subtype (disjoint)';
+    END IF;
+END //
+DELIMITER ;
+
+-- ---------------------------------------------------------------------
+-- TRIGGERS: Keep product.quantity_on_hand = SUM(stored_at.quantity_at_location)
 -- ---------------------------------------------------------------------
 DELIMITER //
 CREATE TRIGGER trg_stored_at_insert
@@ -632,18 +479,12 @@ BEGIN
     UPDATE product
        SET quantity_on_hand = (
            SELECT COALESCE(SUM(quantity_at_location), 0)
-           FROM stored_at
-           WHERE product_id = NEW.product_id
-       )
+             FROM stored_at
+            WHERE product_id = NEW.product_id)
      WHERE product_id = NEW.product_id;
 END //
-DELIMITER ;
 
--- ---------------------------------------------------------------------
--- TRIGGER: Update product quantity_on_hand after editing stored_at
 -- If the row moved to another product, the old product is recounted too
--- ---------------------------------------------------------------------
-DELIMITER //
 CREATE TRIGGER trg_stored_at_update
 AFTER UPDATE ON stored_at
 FOR EACH ROW
@@ -651,27 +492,20 @@ BEGIN
     UPDATE product
        SET quantity_on_hand = (
            SELECT COALESCE(SUM(quantity_at_location), 0)
-           FROM stored_at
-           WHERE product_id = NEW.product_id
-       )
+             FROM stored_at
+            WHERE product_id = NEW.product_id)
      WHERE product_id = NEW.product_id;
 
     IF NEW.product_id <> OLD.product_id THEN
         UPDATE product
            SET quantity_on_hand = (
                SELECT COALESCE(SUM(quantity_at_location), 0)
-               FROM stored_at
-               WHERE product_id = OLD.product_id
-           )
+                 FROM stored_at
+                WHERE product_id = OLD.product_id)
          WHERE product_id = OLD.product_id;
     END IF;
 END //
-DELIMITER ;
 
--- ---------------------------------------------------------------------
--- TRIGGER: Update product quantity_on_hand after deleting stored_at
--- ---------------------------------------------------------------------
-DELIMITER //
 CREATE TRIGGER trg_stored_at_delete
 AFTER DELETE ON stored_at
 FOR EACH ROW
@@ -679,9 +513,8 @@ BEGIN
     UPDATE product
        SET quantity_on_hand = (
            SELECT COALESCE(SUM(quantity_at_location), 0)
-           FROM stored_at
-           WHERE product_id = OLD.product_id
-       )
+             FROM stored_at
+            WHERE product_id = OLD.product_id)
      WHERE product_id = OLD.product_id;
 END //
 DELIMITER ;
