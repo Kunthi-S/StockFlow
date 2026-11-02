@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Companies · StockFlow</title>
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="../css/companies.css">
+</head>
+<body>
+  <aside id="sidebar" class="sidebar"></aside>
+
+  <main>
+    <div class="page-header">
+      <div>
+        <h1>Companies</h1>
+        <p class="subtitle">Customers and suppliers, with their contact phone numbers.</p>
+      </div>
+    </div>
+
+    <p id="message" class="message"></p>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2 id="form-title">Add company</h2>
+      </div>
+      <form id="company-form" class="panel-body">
+        <div class="form-grid">
+          <label>Name
+            <input name="name" type="text" maxlength="100" required>
+          </label>
+          <label>Email
+            <input name="email" type="email" maxlength="100" required>
+          </label>
+          <label>Street
+            <input name="street" type="text" maxlength="150" required>
+          </label>
+          <label>City
+            <input name="city" type="text" maxlength="80" required>
+          </label>
+          <label>Postal code
+            <input name="postal_code" type="text" maxlength="10" required>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" id="save-btn" class="btn">Add company</button>
+          <button type="button" id="cancel-btn" class="btn-small" hidden>Cancel edit</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>All companies</h2>
+        <input id="search" type="search" placeholder="Search name, email or city">
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Address</th>
+              <th>Phones</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="companies-body">
+            <tr><td colspan="6" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="../app.js"></script>
+  <script src="../js/companies.js"></script>
+</body>
+</html>
