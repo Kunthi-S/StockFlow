@@ -1,7 +1,7 @@
 -- 01_stockflow_schema.sql
 -- =====================================================================
 --  StockFlow: physical schema, revision 3  (MySQL 8.0.16+ / MariaDB 10.6+)
---  rev 3: product subtypes stored as product_type + attributes JSON
+--  rev 3: product subtypes stored as product_type + type_data JSON
 --  Source: StockFlow_phy_rela_2.xlsx
 --  Tables, keys, indexes and CHECK constraints only.
 --  Procedures, triggers and functions live in stockflow_routines.sql
@@ -77,9 +77,9 @@ CREATE TABLE shipment (
 
 -- ---------------------------------------------------------------------
 -- PRODUCT
--- product_type + attributes (JSON) replace the PACKAGED / WEIGHED / COUNTED
+-- product_type + type_data (JSON) replace the PACKAGED / WEIGHED / COUNTED
 -- subtype tables. One row = one type, so a product can never have two
--- types (disjoint) or none (total). Attributes are validated in Node.
+-- types (disjoint) or none (total). type_data are validated in Node.
 --
 --   PACKAGED {"units_per_pack": 12, "package_type": "CASE", "pack_barcode": "12345678901234"}
 --   WEIGHED  {"tare_weight_kg": 0.1, "avg_net_weight_kg": 5, "unit_of_measure": "KG"}
@@ -94,7 +94,7 @@ CREATE TABLE product (
     reorder_level     DECIMAL(12,3) NULL,
     quantity_on_hand  DECIMAL(12,3) NOT NULL DEFAULT 0,   -- trigger-maintained
     product_type      ENUM('PACKAGED','WEIGHED','COUNTED') NOT NULL,
-    attributes        JSON          NOT NULL,             -- fields depend on product_type
+    type_data        JSON          NOT NULL,             -- fields depend on product_type
     CONSTRAINT pk_product          PRIMARY KEY (product_id),
     CONSTRAINT ck_product_cost     CHECK (standard_cost    >= 0),
     CONSTRAINT ck_product_reorder  CHECK (reorder_level    >= 0),

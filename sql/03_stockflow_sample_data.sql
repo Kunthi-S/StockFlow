@@ -42,7 +42,7 @@ INSERT INTO company_phone (company_id, contact_phone) VALUES
 -- PRODUCT  (3 of each type; quantity_on_hand filled by triggers)
 -- ---------------------------------------------------------------------
 INSERT INTO product (product_id, sku, name, category, standard_cost, reorder_level,
-                     product_type, attributes) VALUES
+                     product_type, type_data) VALUES
  (1,  'PK-WAT-600', 'Drinking Water 600ml',   'Beverages',  4.5000,  100,  'PACKAGED',
       JSON_OBJECT('units_per_pack', 12, 'package_type', 'CASE', 'pack_barcode', '08850999100012')),
  (2,  'PK-NOD-MAMA','Instant Noodles Tom Yum','Food',       5.0000,  200,  'PACKAGED',
