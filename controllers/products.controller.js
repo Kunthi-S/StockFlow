@@ -1,257 +1,181 @@
 // controllers/products.controller.js
 const pool = require('../db');
 
-// ---------- subtype tables ----------
-
-// Specialization: disjoint, total -> every product has exactly one of these
-// fields are in the order the insert / update procedures take them
-// insert: (sku, name, category, standard_cost, reorder_level, ...fields, @out)
-// update: (product_id, ...fields) -> also switches the product to this type
-const TYPES = {
-  packaged: {
-    table: 'packaged_product',
-    fields: ['units_per_pack', 'package_type', 'pack_barcode'],
-    required: ['units_per_pack', 'package_type'],
-    insert: 'CALL p_insert_packaged_product(?, ?, ?, ?, ?, ?, ?, ?, @out)',
-    update: 'CALL p_update_packaged_product(?, ?, ?, ?)',
-  },
-  weighed: {
-    table: 'weighed_product',
-    fields: ['tare_weight_kg', 'avg_net_weight_kg', 'unit_of_measure'],
-    required: ['tare_weight_kg', 'avg_net_weight_kg', 'unit_of_measure'],
-    insert: 'CALL p_insert_weighed_product(?, ?, ?, ?, ?, ?, ?, ?, @out)',
-    update: 'CALL p_update_weighed_product(?, ?, ?, ?)',
-  },
-  counted: {
-    table: 'counted_product',
-    fields: ['unit_label', 'is_serialized'],
-    required: ['unit_label'],
-    insert: 'CALL p_insert_counted_product(?, ?, ?, ?, ?, ?, ?, @out)',
-    update: 'CALL p_update_counted_product(?, ?, ?)',
-  },
+// Every product is exactly one type. Its type's fields are stored in the
+// type_data JSON column (Lab 11); these are the fields each type must have.
+const REQUIRED_TYPE_FIELDS = {
+  PACKAGED: ['units_per_pack', 'package_type'],
+  WEIGHED: ['tare_weight_kg', 'avg_net_weight_kg', 'unit_of_measure'],
+  COUNTED: ['unit_label'],
 };
 
-const BASE_FIELDS = ['sku', 'name', 'category', 'standard_cost', 'reorder_level'];
-
-// the one TYPES key present in body, or an error
-function pickType(body, isRequired) {
-  const keys = Object.keys(TYPES).filter((k) => body[k] != null);
-  if (keys.length > 1) return { error: 'product can only be one of packaged, weighed, counted' };
-  if (keys.length === 0 && isRequired) return { error: 'product needs one of packaged, weighed, counted' };
-  return { type: keys[0] };
-}
-
-// error string or null
-function checkFields(name, spec, data) {
-  if (typeof data !== 'object') return `${name} must be an object`;
-  const missing = spec.required.filter((col) => data[col] == null);
-  return missing.length ? `${name} missing ${missing.join(', ')}` : null;
-}
-
-// locations: [{ location_id | code, aisle?, capacity_units?, quantity_at_location }]
-// (aisle and capacity_units are only needed when code is a new location)
-function checkLocations(locations) {
-  if (!Array.isArray(locations)) return 'locations must be an array';
-  for (const l of locations) {
-    if (!l || (!l.location_id && !l.code)) return 'each location needs location_id or code';
+// Returns an error message, or null if the body is fine
+function checkProduct(body) {
+  const { sku, name, category, standard_cost, product_type, type_data } = body;
+  if (!sku || !name || !category || standard_cost == null) {
+    return 'sku, name, category and standard_cost are required';
   }
-  const keys = locations.map((l) => (l.location_id ? `id:${l.location_id}` : `code:${l.code}`));
-  if (new Set(keys).size !== keys.length) return 'duplicate location in locations';
+  const required = REQUIRED_TYPE_FIELDS[product_type];
+  if (!required) return 'product_type must be PACKAGED, WEIGHED or COUNTED';
+  if (!type_data) return 'type_data is required';
+  for (const field of required) {
+    if (type_data[field] == null || type_data[field] === '') return 'type_data needs ' + field;
+  }
   return null;
 }
 
-// validates the type and locations parts of the body
-function checkChildren(body, typeRequired) {
-  const { type, error } = pickType(body, typeRequired);
-  if (error) return { error };
-  if (type) {
-    const e = checkFields(type, TYPES[type], body[type]);
-    if (e) return { error: e };
+// Save the product's storage locations: [{ code, aisle?, capacity_slots?, quantity_at_location }]
+// A code that is not in the location table yet is created (it then needs an
+// aisle and capacity_slots). quantity_on_hand is updated by the stored_at triggers.
+// Returns an error message, or null.
+async function saveLocations(conn, productId, locations) {
+  for (const loc of locations) {
+    const [found] = await conn.execute('SELECT location_id FROM location WHERE code = ?', [loc.code]);
+    let locationId;
+    if (found.length > 0) {
+      locationId = found[0].location_id;
+    } else {
+      if (!loc.aisle || !loc.capacity_slots) return 'new location ' + loc.code + ' needs an aisle and capacity_slots';
+      const [r] = await conn.execute(
+        'INSERT INTO location (code, capacity_slots, aisle) VALUES (?, ?, ?)',
+        [loc.code, loc.capacity_slots, loc.aisle]);
+      locationId = r.insertId;
+    }
+    await conn.execute(
+      'INSERT INTO stored_at (location_id, product_id, quantity_at_location) VALUES (?, ?, ?)',
+      [locationId, productId, loc.quantity_at_location ?? 0]);
   }
-  if (body.locations !== undefined) {
-    const e = checkLocations(body.locations);
-    if (e) return { error: e };
-  }
-  return { type };
+  return null;
 }
 
-const baseArgs = (body) => BASE_FIELDS.map((f) => body[f]);
-const typeArgs = (type, body) => TYPES[type].fields.map((f) => body[type][f] ?? null);
-
-// there is no locations page, so a location given by code is created here if it does not exist yet
-async function resolveLocationId(conn, l) {
-  if (l.location_id) return l.location_id;
-  const [rows] = await conn.execute('SELECT location_id FROM location WHERE code = ?', [l.code]);
-  if (rows.length > 0) return rows[0].location_id;
-  if (!l.aisle || l.capacity_units == null) {
-    throw Object.assign(new Error(`new location ${l.code} needs aisle, capacity_units`), { status: 400 });
-  }
-  await conn.query('CALL p_insert_location(?, ?, ?, @out)', [l.code, l.capacity_units, l.aisle]);
-  const [[{ id }]] = await conn.query('SELECT @out AS id');
-  return id;
-}
-
-// make the product's stored_at rows match locations: update existing, insert new, delete missing
-// (quantity_on_hand follows via the stored_at triggers)
-async function syncLocations(conn, productId, locations) {
-  const [rows] = await conn.execute('SELECT location_id FROM stored_at WHERE product_id = ?', [productId]);
-  const existing = new Set(rows.map((r) => String(r.location_id)));
-  const wanted = [];
-  for (const l of locations) {
-    wanted.push({ locationId: String(await resolveLocationId(conn, l)), quantity: l.quantity_at_location ?? 0 });
-  }
-  const wantedIds = new Set(wanted.map((w) => w.locationId));
-  if (wantedIds.size !== wanted.length) {
-    throw Object.assign(new Error('duplicate location in locations'), { status: 400 });
-  }
-  for (const locationId of existing) {
-    if (!wantedIds.has(locationId)) await conn.query('CALL p_delete_product_location(?, ?)', [productId, locationId]);
-  }
-  for (const w of wanted) {
-    const sql = existing.has(w.locationId)
-      ? 'CALL p_update_product_location(?, ?, ?)'
-      : 'CALL p_add_product_location(?, ?, ?)';
-    await conn.query(sql, [productId, w.locationId, w.quantity]);
-  }
-}
-
-// ---------- products ----------
-
-// GET /api/products  (with type)
+// GET /api/products   is_low comes from the stored function is_low_stock (Lab 11)
 exports.getAll = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT p.*,
-         CASE WHEN pk.product_id IS NOT NULL THEN 'packaged'
-              WHEN w.product_id  IS NOT NULL THEN 'weighed'
-              WHEN c.product_id  IS NOT NULL THEN 'counted' END AS type
-       FROM product p
-       LEFT JOIN packaged_product pk ON pk.product_id = p.product_id
-       LEFT JOIN weighed_product w   ON w.product_id  = p.product_id
-       LEFT JOIN counted_product c   ON c.product_id  = p.product_id
-       ORDER BY p.product_id`
-    );
+      'SELECT *, is_low_stock(product_id) AS is_low FROM product ORDER BY product_id');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message, sql: err.sql });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// GET /api/products/:id  (product with its subtype row and locations, same shape as POST/PUT)
+// GET /api/products/:id   one product with a nested locations array (Lab 8)
 exports.getById = async (req, res) => {
   try {
-    const id = req.params.id;
-    const [rows] = await pool.execute('SELECT * FROM product WHERE product_id = ?', [id]);
+    const [rows] = await pool.execute('SELECT * FROM product WHERE product_id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'product not found' });
-    const product = { ...rows[0], type: null };
 
-    for (const [name, spec] of Object.entries(TYPES)) {
-      const [sub] = await pool.execute(`SELECT * FROM ${spec.table} WHERE product_id = ?`, [id]);
-      product[name] = sub[0] || null;
-      if (sub[0]) product.type = name;
-    }
     const [locations] = await pool.execute(
-      `SELECT s.location_id, l.code, l.aisle, l.capacity_units, s.quantity_at_location
-       FROM stored_at s JOIN location l ON l.location_id = s.location_id
-       WHERE s.product_id = ?
-       ORDER BY l.code`,
-      [id]
-    );
+      `SELECT l.code, l.aisle, l.capacity_slots, s.quantity_at_location
+         FROM stored_at s JOIN location l ON l.location_id = s.location_id
+        WHERE s.product_id = ?
+        ORDER BY l.code`, [req.params.id]);
+    const product = rows[0];
     product.locations = locations;
     res.json(product);
   } catch (err) {
-    res.status(500).json({ error: err.message, sql: err.sql });
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/products/locations   every location (used to fill in aisle/capacity)
+exports.getLocations = async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM location ORDER BY code');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 
 // POST /api/products
-// { sku, name, category, standard_cost, reorder_level,
-//   packaged | weighed | counted: {...},              (exactly one, required)
-//   locations?: [{ location_id | code, aisle?, capacity_units?, quantity_at_location }] }
-// quantity_on_hand is trigger-maintained, so it is not set here
-// product, subtype and stored_at rows are written in one transaction
+// body: { sku, name, category, standard_cost, reorder_level, product_type, type_data, locations }
+// The product and its locations are saved in ONE transaction (Lab 9).
 exports.create = async (req, res) => {
-  try {
-    const body = req.body || {};
-    const { sku, name, category, standard_cost, reorder_level } = body;
-    if (!sku || !name || !category || standard_cost == null || reorder_level == null) {
-      return res.status(400).json({ error: 'missing fields' });
-    }
-    const { type, error } = checkChildren(body, true);
-    if (error) return res.status(400).json({ error });
+  const error = checkProduct(req.body);
+  if (error) return res.status(400).json({ error });
+  const { sku, name, category, standard_cost, reorder_level, product_type, type_data } = req.body;
+  const locations = req.body.locations ?? [];
 
-    const productId = await pool.transaction(async (conn) => {
-      await conn.query(TYPES[type].insert, [...baseArgs(body), ...typeArgs(type, body)]);
-      const [[{ id }]] = await conn.query('SELECT @out AS id');
-      if (body.locations) await syncLocations(conn, id, body.locations);
-      return id;
-    });
-    res.status(201).json({ product_id: productId });
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [r] = await conn.execute(
+      `INSERT INTO product (sku, name, category, standard_cost, reorder_level, product_type, type_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [sku, name, category, standard_cost, reorder_level ?? null, product_type, JSON.stringify(type_data)]);
+
+    const locError = await saveLocations(conn, r.insertId, locations);
+    if (locError) {
+      await conn.rollback();
+      return res.status(400).json({ error: locError });
+    }
+    await conn.commit();
+    res.status(201).json({ product_id: r.insertId });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message, sql: err.sql });
+    await conn.rollback();
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'that SKU or location is already used' });
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
   }
 };
 
-// PUT /api/products/:id  same body as POST, but the child parts are optional:
-//   packaged | weighed | counted  -> updates the details, or switches the product to that type
-//   locations [...]               -> become the product's stored_at rows
+// PUT /api/products/:id   same body as POST
+// The product's locations are replaced: old stored_at rows are deleted and
+// the new list is inserted, all in ONE transaction.
 exports.update = async (req, res) => {
-  try {
-    const body = req.body || {};
-    const { sku, name, category, standard_cost, reorder_level } = body;
-    if (!sku || !name || !category || standard_cost == null || reorder_level == null) {
-      return res.status(400).json({ error: 'missing fields' });
-    }
-    const { type, error } = checkChildren(body, false);
-    if (error) return res.status(400).json({ error });
+  const error = checkProduct(req.body);
+  if (error) return res.status(400).json({ error });
+  const { sku, name, category, standard_cost, reorder_level, product_type, type_data } = req.body;
+  const locations = req.body.locations ?? [];
 
-    const id = req.params.id;
-    const found = await pool.transaction(async (conn) => {
-      const [rows] = await conn.execute('SELECT 1 FROM product WHERE product_id = ?', [id]);
-      if (rows.length === 0) return false;
-      await conn.query('CALL p_update_product(?, ?, ?, ?, ?, ?)', [id, ...baseArgs(body)]);
-      if (type) await conn.query(TYPES[type].update, [id, ...typeArgs(type, body)]);
-      if (body.locations) await syncLocations(conn, id, body.locations);
-      return true;
-    });
-    if (!found) return res.status(404).json({ error: 'product not found' });
-    res.json({ message: 'product updated' });
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [r] = await conn.execute(
+      `UPDATE product
+          SET sku = ?, name = ?, category = ?, standard_cost = ?, reorder_level = ?,
+              product_type = ?, type_data = ?
+        WHERE product_id = ?`,
+      [sku, name, category, standard_cost, reorder_level ?? null, product_type, JSON.stringify(type_data), req.params.id]);
+    if (r.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'product not found' });
+    }
+
+    await conn.execute('DELETE FROM stored_at WHERE product_id = ?', [req.params.id]);
+    const locError = await saveLocations(conn, req.params.id, locations);
+    if (locError) {
+      await conn.rollback();
+      return res.status(400).json({ error: locError });
+    }
+    await conn.commit();
+    res.json({ ok: true });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message, sql: err.sql });
+    await conn.rollback();
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'that SKU or location is already used' });
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
   }
 };
 
 // DELETE /api/products/:id
-// subtype rows cascade; stock and order lines block it (clear locations via PUT first)
+// A product that is in an order, or still has stock, cannot be deleted
+// (ON DELETE RESTRICT), so check both first.
 exports.remove = async (req, res) => {
   try {
-    const id = req.params.id;
-    const [items] = await pool.execute('SELECT 1 FROM order_item WHERE product_id = ? LIMIT 1', [id]);
+    const [items] = await pool.execute('SELECT order_id FROM order_item WHERE product_id = ?', [req.params.id]);
     if (items.length > 0) return res.status(409).json({ error: 'product is used in orders' });
-    const [stock] = await pool.execute('SELECT 1 FROM stored_at WHERE product_id = ? LIMIT 1', [id]);
-    if (stock.length > 0) return res.status(409).json({ error: 'product still has stock' });
-    const [rows] = await pool.execute('SELECT 1 FROM product WHERE product_id = ?', [id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'product not found' });
-    await pool.query('CALL p_delete_product(?)', [id]);
-    res.json({ message: 'product deleted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message, sql: err.sql });
-  }
-};
 
-// ---------- locations (picker for the products page) ----------
+    const [stock] = await pool.execute('SELECT location_id FROM stored_at WHERE product_id = ?', [req.params.id]);
+    if (stock.length > 0) return res.status(409).json({ error: 'product still has stock - remove its locations first' });
 
-// GET /api/products/locations  (all locations with units currently stored)
-exports.getLocations = async (req, res) => {
-  try {
-    const [rows] = await pool.execute(
-      `SELECT l.*, COALESCE(SUM(s.quantity_at_location), 0) AS units_stored
-       FROM location l LEFT JOIN stored_at s ON s.location_id = l.location_id
-       GROUP BY l.location_id
-       ORDER BY l.code`
-    );
-    res.json(rows);
+    const [r] = await pool.execute('DELETE FROM product WHERE product_id = ?', [req.params.id]);
+    if (r.affectedRows === 0) return res.status(404).json({ error: 'product not found' });
+    res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message, sql: err.sql });
+    res.status(500).json({ error: err.message });
   }
 };

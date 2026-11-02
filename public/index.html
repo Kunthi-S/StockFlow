@@ -1,12 +1,260 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <!-- Entry point: send the browser straight to the Dashboard -->
-  <meta http-equiv="refresh" content="0; url=pages/dashboard.html">
-  <title>StockFlow</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockFlow</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <a href="pages/dashboard.html">Go to Dashboard</a>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">◆ StockFlow</div>
+      <div class="tagline">warehouse &amp; order control</div>
+    </div>
+    <nav id="nav">
+      <button data-page="dashboard">Dashboard</button>
+      <button data-page="orders">Orders</button>
+      <button data-page="products">Products</button>
+      <button data-page="companies">Companies</button>
+    </nav>
+  </aside>
+
+  <main>
+    <p id="message" class="message"></p>
+
+    <!-- ==================== Dashboard ==================== -->
+    <section id="dashboard" class="page">
+      <div class="page-header">
+        <h1>Dashboard</h1>
+        <button id="refreshBtn" class="btn">Refresh</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-label">Products</div>
+          <div class="stat-value" id="statProducts">–</div>
+          <div class="stat-note">All SKUs</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-label">Below reorder level</div>
+          <div class="stat-value" id="statLowStock">–</div>
+          <div class="stat-note">Needs attention</div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-label">Open orders</div>
+          <div class="stat-value" id="statOpenOrders">–</div>
+          <div class="stat-note">In progress</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Companies</div>
+          <div class="stat-value" id="statCompanies">–</div>
+          <div class="stat-note">Customers &amp; suppliers</div>
+        </div>
+      </div>
+
+      <div class="two-columns">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Low-stock products</h2>
+            <span class="panel-tag">Inventory alerts</span>
+          </div>
+          <div class="panel-body">
+            <table>
+              <thead>
+                <tr><th>SKU</th><th>Name</th><th>On hand</th><th>Reorder level</th></tr>
+              </thead>
+              <tbody id="lowStockBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h2>Recent orders</h2></div>
+          <div class="panel-body">
+            <ul id="recentOrders" class="activity"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== Orders ==================== -->
+    <section id="orders" class="page">
+      <div class="page-header">
+        <h1>Orders</h1>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2>New order</h2></div>
+        <div class="panel-body">
+          <form id="orderForm">
+            <div class="form-grid">
+              <label>Company <select id="orderCompany" required></select></label>
+              <label>Direction
+                <select id="orderDirection">
+                  <option value="OUT">Out (sale to a customer)</option>
+                  <option value="IN">In (purchase from a supplier)</option>
+                </select>
+              </label>
+            </div>
+          </form>
+
+          <div class="subform">
+            <h3>Items</h3>
+            <div class="form-grid">
+              <label>Product <select id="orderProduct"></select></label>
+              <label>Quantity <input id="orderQty" type="number" min="0.001" step="any"></label>
+              <label>Unit price (THB) <input id="orderPrice" type="number" min="0" step="0.01"></label>
+            </div>
+            <button type="button" id="addItemBtn" class="btn-small">Add item</button>
+            <table class="items-table">
+              <thead>
+                <tr><th>Product</th><th>Quantity</th><th>Unit price</th><th>Line total</th><th></th></tr>
+              </thead>
+              <tbody id="orderItemsBody"></tbody>
+              <tfoot>
+                <tr><th colspan="3">Order total</th><th id="orderItemsTotal">0.00</th><th></th></tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <button type="submit" form="orderForm" class="btn">Create order</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2>All orders</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Direction</th><th>Company</th><th>Date</th><th>Status</th><th>Shipment</th><th>Total (THB)</th><th></th></tr>
+            </thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== Products ==================== -->
+    <section id="products" class="page">
+      <div class="page-header">
+        <h1>Products</h1>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2 id="productFormTitle">Add product</h2></div>
+        <form id="productForm" class="panel-body">
+          <div class="form-grid">
+            <label>SKU <input name="sku" type="text" maxlength="30" required></label>
+            <label>Name <input name="name" type="text" maxlength="150" required></label>
+            <label>Category <input name="category" type="text" maxlength="60" required></label>
+            <label>Standard cost (THB) <input name="standard_cost" type="number" min="0" step="0.0001" required></label>
+            <label>Reorder level (optional) <input name="reorder_level" type="number" min="0" step="any"></label>
+            <label>Product type
+              <select name="product_type">
+                <option value="PACKAGED">Packaged</option>
+                <option value="WEIGHED">Weighed</option>
+                <option value="COUNTED">Counted</option>
+              </select>
+            </label>
+          </div>
+
+          <div data-type="PACKAGED" class="subform">
+            <h3>Packaged details</h3>
+            <div class="form-grid">
+              <label>Units per pack <input name="units_per_pack" type="number" min="1" step="1"></label>
+              <label>Package type <input name="package_type" type="text" maxlength="50"></label>
+              <label>Pack barcode (optional) <input name="pack_barcode" type="text" maxlength="50"></label>
+            </div>
+          </div>
+
+          <div data-type="WEIGHED" class="subform hide">
+            <h3>Weighed details</h3>
+            <div class="form-grid">
+              <label>Tare weight (kg) <input name="tare_weight_kg" type="number" min="0" step="any"></label>
+              <label>Average net weight (kg) <input name="avg_net_weight_kg" type="number" min="0" step="any"></label>
+              <label>Unit of measure <input name="unit_of_measure" type="text" maxlength="20"></label>
+            </div>
+          </div>
+
+          <div data-type="COUNTED" class="subform hide">
+            <h3>Counted details</h3>
+            <div class="form-grid">
+              <label>Unit label <input name="unit_label" type="text" maxlength="30"></label>
+              <label class="check"><input name="is_serialized" type="checkbox"> Serialized</label>
+            </div>
+          </div>
+
+          <div class="subform">
+            <h3>Storage locations</h3>
+            <p class="hint">Type an existing code to reuse it. A new code also needs an aisle and capacity.</p>
+            <div class="form-grid">
+              <label>Location code <input id="locCode" type="text" maxlength="15"></label>
+              <label>Aisle (new only) <input id="locAisle" type="text" maxlength="10"></label>
+              <label>Capacity slots (new only) <input id="locCapacity" type="number" min="1" step="1"></label>
+              <label>Quantity here <input id="locQty" type="number" min="0" step="any"></label>
+            </div>
+            <button type="button" id="addLocationBtn" class="btn-small">Add location</button>
+            <ul id="locationList" class="location-list"></ul>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" id="productSaveBtn" class="btn">Add product</button>
+            <button type="button" id="productCancelBtn" class="btn-small hide">Cancel edit</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2>All products</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>SKU</th><th>Name</th><th>Category</th><th>Type</th><th>On hand</th><th>Reorder</th><th>Cost (THB)</th><th></th></tr>
+            </thead>
+            <tbody id="productsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== Companies ==================== -->
+    <section id="companies" class="page">
+      <div class="page-header">
+        <h1>Companies</h1>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2 id="companyFormTitle">Add company</h2></div>
+        <form id="companyForm" class="panel-body">
+          <div class="form-grid">
+            <label>Name <input name="name" type="text" maxlength="150" required></label>
+            <label>Email <input name="email" type="email" maxlength="254" required></label>
+            <label>Street <input name="street" type="text" maxlength="150" required></label>
+            <label>City <input name="city" type="text" maxlength="100" required></label>
+            <label>Postal code <input name="postal_code" type="text" maxlength="5" pattern="[0-9]{5}" title="5 digits" required></label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" id="companySaveBtn" class="btn">Add company</button>
+            <button type="button" id="companyCancelBtn" class="btn-small hide">Cancel edit</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2>All companies</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Name</th><th>Email</th><th>Address</th><th>Phones</th><th></th></tr>
+            </thead>
+            <tbody id="companiesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
 </body>
 </html>

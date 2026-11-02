@@ -1,5 +1,8 @@
+// db.js - one shared connection pool for the whole app (Lab 6 pattern)
+// The login comes from the .env file (Lab 10), not from this file.
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
-require('dotenv').config();
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
@@ -8,24 +11,7 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
+  dateStrings: true,   // DATE/DATETIME come back as '2026-09-06', not shifted to UTC
 });
-
-// pool.transaction(async (conn) => { ... })
-// runs fn on one connection in one transaction: commits if it finishes,
-// rolls back if it throws, and always gives the connection back to the pool
-pool.transaction = async (fn) => {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-    const result = await fn(conn);
-    await conn.commit();
-    return result;
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
 
 module.exports = pool;
