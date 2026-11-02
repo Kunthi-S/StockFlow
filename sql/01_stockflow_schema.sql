@@ -1,11 +1,11 @@
--- 01_stockflow_schema.sql - placeholder
+-- 01_stockflow_schema.sql
 -- =====================================================================
 --  StockFlow: physical schema, revision 3  (MySQL 8.0.16+ / MariaDB 10.6+)
+--  rev 3: product subtypes stored as product_type + attributes JSON
 --  Source: StockFlow_phy_rela_2.xlsx
---  Revision 3: HAZARDOUS, PERISHABLE and LOT removed.
 --  Tables, keys, indexes and CHECK constraints only.
---  Triggers and procedures live in 02_stockflow_triggers.sql
---  (run this file first, then that one, then 03_stockflow_sample_data.sql).
+--  Procedures, triggers and functions live in stockflow_routines.sql
+--  (run this file first, then that one).
 -- =====================================================================
 
 DROP DATABASE IF EXISTS stockflow;
@@ -32,7 +32,7 @@ CREATE TABLE company_phone (
     CONSTRAINT pk_company_phone PRIMARY KEY (company_id, contact_phone),
     CONSTRAINT fk_phone_company FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE CASCADE  -- update/delete according to company_id
+        ON UPDATE CASCADE ON DELETE CASCADE -- update/ delete according to company_id
 );
 
 -- ---------------------------------------------------------------------
@@ -49,7 +49,7 @@ CREATE TABLE orders (
     CONSTRAINT pk_orders          PRIMARY KEY (order_id),
     CONSTRAINT fk_orders_company  FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE RESTRICT,  -- prevents deleting a company if any orders still reference it.
+        ON UPDATE CASCADE ON DELETE RESTRICT, -- Prevents deleting a company if any orders still reference it.
     CONSTRAINT ck_orders_total    CHECK (total_amount >= 0),
     INDEX idx_orders_company (company_id),
     INDEX idx_orders_status_date (status, order_date)
@@ -76,7 +76,14 @@ CREATE TABLE shipment (
 );
 
 -- ---------------------------------------------------------------------
--- PRODUCT  (supertype)
+-- PRODUCT
+-- product_type + attributes (JSON) replace the PACKAGED / WEIGHED / COUNTED
+-- subtype tables. One row = one type, so a product can never have two
+-- types (disjoint) or none (total). Attributes are validated in Node.
+--
+--   PACKAGED {"units_per_pack": 12, "package_type": "CASE", "pack_barcode": "12345678901234"}
+--   WEIGHED  {"tare_weight_kg": 0.1, "avg_net_weight_kg": 5, "unit_of_measure": "KG"}
+--   COUNTED  {"unit_label": "PIECE", "is_serialized": true}
 -- ---------------------------------------------------------------------
 CREATE TABLE product (
     product_id        INT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -84,8 +91,10 @@ CREATE TABLE product (
     name              VARCHAR(150)  NOT NULL,
     category          VARCHAR(60)   NOT NULL,
     standard_cost     DECIMAL(12,4) NOT NULL,
-    reorder_level     DECIMAL(12,3) NOT NULL DEFAULT 0,
-    quantity_on_hand  DECIMAL(12,3) NOT NULL DEFAULT 0,  -- trigger-maintained
+    reorder_level     DECIMAL(12,3) NULL,
+    quantity_on_hand  DECIMAL(12,3) NOT NULL DEFAULT 0,   -- trigger-maintained
+    product_type      ENUM('PACKAGED','WEIGHED','COUNTED') NOT NULL,
+    attributes        JSON          NOT NULL,             -- fields depend on product_type
     CONSTRAINT pk_product          PRIMARY KEY (product_id),
     CONSTRAINT ck_product_cost     CHECK (standard_cost    >= 0),
     CONSTRAINT ck_product_reorder  CHECK (reorder_level    >= 0),
@@ -115,57 +124,16 @@ CREATE TABLE order_item (
 );
 
 -- ---------------------------------------------------------------------
--- Specialization 1: PRODUCT -> PACKAGED / WEIGHED / COUNTED  (disjoint, total)
--- ---------------------------------------------------------------------
-CREATE TABLE packaged_product (
-    product_id      INT UNSIGNED NOT NULL,
-    units_per_pack  INT NOT NULL,
-    package_type    ENUM('BOX','CASE','BAG','PALLET') NOT NULL,
-    pack_barcode    VARCHAR(14)      NULL,  -- EAN-8 / UPC-A / EAN-13 / GTIN-14
-    CONSTRAINT pk_packaged_product  PRIMARY KEY (product_id),
-    CONSTRAINT uq_pack_barcode      UNIQUE (pack_barcode),
-    CONSTRAINT fk_packaged_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_units_per_pack    CHECK (units_per_pack > 0),
-    CONSTRAINT ck_pack_barcode      CHECK (pack_barcode IS NULL
-                                           OR pack_barcode REGEXP '^([0-9]{8}|[0-9]{12,14})$')
-);
-
-CREATE TABLE weighed_product (
-    product_id         INT UNSIGNED NOT NULL,
-    tare_weight_kg     DECIMAL(8,3) NOT NULL,
-    avg_net_weight_kg  DECIMAL(8,3) NOT NULL,
-    unit_of_measure    ENUM('KG','G','L','ML') NOT NULL,
-    CONSTRAINT pk_weighed_product  PRIMARY KEY (product_id),
-    CONSTRAINT fk_weighed_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT ck_tare_weight      CHECK (tare_weight_kg    >= 0),
-    CONSTRAINT ck_avg_net_weight   CHECK (avg_net_weight_kg >  0)
-);
-
-CREATE TABLE counted_product (
-    product_id     INT UNSIGNED NOT NULL,
-    unit_label     VARCHAR(20)  NOT NULL,                -- piece, pair, ...
-    is_serialized  BOOLEAN      NOT NULL DEFAULT FALSE,
-    CONSTRAINT pk_counted_product  PRIMARY KEY (product_id),
-    CONSTRAINT fk_counted_product  FOREIGN KEY (product_id)
-        REFERENCES product (product_id)
-        ON UPDATE CASCADE ON DELETE CASCADE
-);
-
--- ---------------------------------------------------------------------
 -- LOCATION
 -- ---------------------------------------------------------------------
 CREATE TABLE location (
     location_id     INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     code            VARCHAR(15)   NOT NULL,              -- e.g. A-03-2
-    capacity_units  INT           NOT NULL,              -- max base units the bin can hold
+    capacity_slots  INT UNSIGNED  NOT NULL,
     aisle           VARCHAR(10)   NOT NULL,
     CONSTRAINT pk_location        PRIMARY KEY (location_id),
     CONSTRAINT uq_location_code   UNIQUE (code),
-    CONSTRAINT ck_location_cap    CHECK (capacity_units > 0)
+    CONSTRAINT ck_location_cap    CHECK (capacity_slots > 0)
 );
 
 -- ---------------------------------------------------------------------
