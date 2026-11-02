@@ -299,11 +299,12 @@ async function loadProducts() {
   const list = await api("GET", "/api/products");
   if (!list) return;
   $("productsBody").innerHTML = list.length === 0
-    ? '<tr><td colspan="8" class="empty">No products yet. Add the first one above.</td></tr>'
+    ? '<tr><td colspan="9" class="empty">No products yet. Add the first one above.</td></tr>'
     : list.map((p) => `<tr>
         <td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.category)}</td>
         <td><span class="badge type">${p.product_type.toLowerCase()}</span></td>
         <td class="${p.is_low ? "low" : ""}">${Number(p.quantity_on_hand)}</td>
+        <td class="sub">${escapeHtml(p.locations ?? "–")}</td>
         <td>${p.reorder_level == null ? "–" : Number(p.reorder_level)}</td><td>${money(p.standard_cost)}</td>
         <td class="actions">
           <button class="btn-small" data-edit="${p.product_id}">Edit</button>

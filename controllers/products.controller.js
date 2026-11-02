@@ -48,11 +48,16 @@ async function saveLocations(conn, productId, locations) {
   return null;
 }
 
-// GET /api/products   is_low comes from the stored function is_low_stock (Lab 11)
+// GET /api/products   is_low comes from the stored function is_low_stock (Lab 11);
+// locations is one text field, e.g. "A-01-1: 60, A-01-2: 20" (NULL if none)
 exports.getAll = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT *, is_low_stock(product_id) AS is_low FROM product ORDER BY product_id');
+      `SELECT p.*, is_low_stock(p.product_id) AS is_low,
+              (SELECT GROUP_CONCAT(CONCAT(l.code, ': ', s.quantity_at_location + 0e0) ORDER BY l.code SEPARATOR ', ')
+                 FROM stored_at s JOIN location l ON l.location_id = s.location_id
+                WHERE s.product_id = p.product_id) AS locations
+         FROM product p ORDER BY p.product_id`);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

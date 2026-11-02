@@ -7,7 +7,6 @@ body { margin:0; display:flex; min-height:100vh; font-family: Arial, sans-serif;
 .sidebar { width:200px; background:#fff; border-right:1px solid var(--line); }
 .brand { padding:20px 16px; border-bottom:1px solid var(--line); }
 .logo { color:var(--accent); font-size:18px; font-weight:bold; }
-.tagline { color:var(--muted); font-size:11px; margin-top:4px; }
 .sidebar nav button { display:block; width:100%; padding:9px 16px; background:none; border:none; border-left:3px solid transparent; text-align:left; font:inherit; cursor:pointer; }
 .sidebar nav button:hover { background:#f0f1f6; }
 .sidebar nav button.active { background:#efeafc; color:var(--accent); border-left-color:var(--accent); }
