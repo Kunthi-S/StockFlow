@@ -1,13 +1,10 @@
-// public/app.js
-// All front-end logic for StockFlow. index.html has one <section class="page">
-// per screen; the sidebar shows one at a time and reloads its data from /api
-// (each endpoint is listed in routes/*.js).
+// StockFlow front end: one <section> per page, data from /api
 
 const $ = (id) => document.getElementById(id);
 
-// ---- helpers ---------------------------------------------------------------
+// ---- helpers
 
-// Send a request. On an error, show the server's message and return null.
+// On an error: show the server's message and return null
 async function api(method, url, body) {
   const res = await fetch(url, {
     method,
@@ -35,7 +32,7 @@ const money = (v) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 
 const statusText = (s) => s.toLowerCase().replace("_", " ");   // "IN_TRANSIT" -> "in transit"
 const badge = (dir) => `<span class="badge ${dir.toLowerCase()}">${dir.toLowerCase()}</span>`;
 
-// A form's named fields as an object: numbers as numbers, checkboxes as true/false, empty as null
+// A form's named fields as an object (empty -> null)
 function formValues(form) {
   const v = {};
   for (const el of form.elements) {
@@ -47,7 +44,7 @@ function formValues(form) {
   return v;
 }
 
-// Put an object's values into the form fields with the same names
+// Fill the form fields with the same names
 function fillForm(form, data) {
   for (const el of form.elements) {
     if (!el.name || !(el.name in data)) continue;
@@ -56,7 +53,7 @@ function fillForm(form, data) {
   }
 }
 
-// Add/edit forms ("product", "company"): form.dataset.id is the record being edited, "" when adding
+// form.dataset.id: the record being edited, "" when adding
 function setEditing(name, id, data) {
   const form = $(name + "Form");
   form.reset();
@@ -67,7 +64,7 @@ function setEditing(name, id, data) {
   $(name + "CancelBtn").classList.toggle("hide", !id);
 }
 
-// POST when adding, PUT when editing; returns true when saved
+// POST when adding, PUT when editing
 async function saveForm(name, url, body) {
   const id = $(name + "Form").dataset.id;
   if (!await api(id ? "PUT" : "POST", id ? `${url}/${id}` : url, body)) return false;
@@ -75,7 +72,7 @@ async function saveForm(name, url, body) {
   return true;
 }
 
-// ---- page switching ----------------------------------------------------------
+// ---- page switching
 
 const loaders = {
   dashboard: () => loadDashboard(),
@@ -95,7 +92,7 @@ $("nav").addEventListener("click", (e) => {
   if (e.target.dataset.page) showPage(e.target.dataset.page);
 });
 
-// ---- Dashboard ---------------------------------------------------------------
+// ---- Dashboard
 
 async function loadDashboard() {
   const [stats, low, recent] = await Promise.all(
@@ -120,13 +117,13 @@ async function loadDashboard() {
 
 $("refreshBtn").addEventListener("click", loadDashboard);
 
-// ---- Orders ------------------------------------------------------------------
+// ---- Orders
 
 const STATUSES = ["DRAFT", "CONFIRMED", "IN_TRANSIT", "RECEIVED", "SHIPPED", "CANCELLED"];
 const WAREHOUSE = "StockFlow Warehouse, 1 Rangsit-Nakhon Nayok Rd, Pathum Thani 12120";
 
 let products = [];      // for the item drop-down and default prices
-let items = [];         // items of the new order: { product_id, quantity, unit_price, label }
+let items = [];         // items of the new order
 let openOrder = null;   // id of the order whose details are shown
 
 const shipmentCell = (o) => !o.tracking_number && !o.expected_date ? "–"
@@ -150,7 +147,7 @@ async function loadOrders() {
   if (openOrder) showOrderDetail(openOrder);
 }
 
-// Items, status and shipment of one order, in a row under it
+// Detail row under an order: items, status, shipment
 async function showOrderDetail(id) {
   const row = document.querySelector(`[data-view="${id}"]`)?.closest("tr");
   if (!row) return;   // the order was deleted
@@ -194,7 +191,7 @@ async function showOrderDetail(id) {
   </div></td></tr>`);
 }
 
-// Fill the company and product drop-downs (Lab 8 loadCourseOptions)
+// Fill the company and product drop-downs
 async function loadOrderOptions() {
   const companies = await api("GET", "/api/companies") ?? [];
   $("orderCompany").innerHTML = companies.map((c) =>
@@ -229,7 +226,7 @@ $("addItemBtn").addEventListener("click", () => {
   if (!product_id || !(quantity > 0) || !(unit_price >= 0)) {
     return showMessage("Pick a product, a quantity above 0 and a unit price.", true);
   }
-  // A product can be in an order only once, so adding it again adds to its quantity
+  // Same product again: add to its quantity
   const same = items.find((it) => it.product_id === product_id);
   if (same) same.quantity += quantity;
   else items.push({ product_id, quantity, unit_price, label: $("orderProduct").selectedOptions[0].textContent });
@@ -252,10 +249,10 @@ $("orderForm").onsubmit = async (e) => {
   items = [];
   renderItems();
   showMessage("Order #" + data.order_id + " created.");
-  loadOrders();   // re-fetch so the total comes from the database
+  loadOrders();   // total comes from the database
 };
 
-// The status and shipment forms are inside the table, so one listener handles both
+// Status and shipment forms
 $("ordersBody").addEventListener("submit", async (e) => {
   e.preventDefault();
   const id = e.target.dataset.order;
@@ -283,9 +280,8 @@ $("ordersBody").addEventListener("click", async (e) => {
   }
 });
 
-// ---- Products ----------------------------------------------------------------
+// ---- Products
 
-// The type_data fields of each product type
 const TYPE_FIELDS = {
   PACKAGED: ["units_per_pack", "package_type", "pack_barcode"],
   WEIGHED: ["tare_weight_kg", "avg_net_weight_kg", "unit_of_measure"],
@@ -316,7 +312,7 @@ async function loadLocations() {
   knownLocations = await api("GET", "/api/products/locations") ?? [];
 }
 
-// Show only the details box of the selected product type
+// Show only the selected type's details box
 function showTypeFields() {
   const type = $("productForm").elements["product_type"].value;
   for (const box of document.querySelectorAll("[data-type]")) box.classList.toggle("hide", box.dataset.type !== type);
@@ -329,7 +325,7 @@ function renderLocations() {
       <button type="button" class="btn-small danger" data-index="${i}">Remove</button></li>`).join("");
 }
 
-// Typing an existing location code fills in its aisle and capacity
+// A known location code fills in its aisle and capacity
 $("locCode").addEventListener("change", () => {
   const known = knownLocations.find((l) => l.code === $("locCode").value.trim());
   if (!known) return;
@@ -356,7 +352,7 @@ $("locationList").addEventListener("click", (e) => {
   renderLocations();
 });
 
-// Put product p in the form, or empty the form for a new product when p is undefined
+// Fill the form with product p, or clear it
 function editProduct(p) {
   setEditing("product", p?.product_id, p && { ...p, ...p.type_data });
   productLocations = (p?.locations ?? []).map((l) => ({ ...l, quantity_at_location: Number(l.quantity_at_location) }));
@@ -388,7 +384,7 @@ $("productsBody").addEventListener("click", async (e) => {
 
 $("productCancelBtn").addEventListener("click", () => editProduct());
 
-// ---- Companies ---------------------------------------------------------------
+// ---- Companies
 
 let companies = [];
 
@@ -396,7 +392,7 @@ async function loadCompanies() {
   const list = await api("GET", "/api/companies");
   if (!list) return;
   companies = list;
-  // Fetch every company's phones at the same time instead of one after another
+  // Load every company's phones in parallel
   const phones = await Promise.all(companies.map((c) => api("GET", `/api/companies/${c.company_id}/phones`)));
 
   $("companiesBody").innerHTML = companies.length === 0
@@ -426,7 +422,6 @@ $("companyForm").onsubmit = async (e) => {
   loadCompanies();
 };
 
-// One click listener for every button in the companies table
 $("companiesBody").addEventListener("click", async (e) => {
   const d = e.target.dataset;
   let ok = false;
@@ -451,5 +446,7 @@ $("companiesBody").addEventListener("click", async (e) => {
 
 $("companyCancelBtn").addEventListener("click", () => setEditing("company"));
 
-// Start on the Dashboard
+// Read-only mode: style.css hides the edit controls
+api("GET", "/api/config").then((c) => document.body.classList.toggle("read-only", Boolean(c?.readOnly)));
+
 showPage("dashboard");

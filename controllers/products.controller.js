@@ -1,15 +1,14 @@
-// controllers/products.controller.js
 const pool = require('../db');
+const { fail } = require('../utils/http');
 
-// Every product is exactly one type. Its type's fields are stored in the
-// type_data JSON column (Lab 11); these are the fields each type must have.
+// The type_data fields each product type needs
 const REQUIRED_TYPE_FIELDS = {
   PACKAGED: ['units_per_pack', 'package_type'],
   WEIGHED: ['tare_weight_kg', 'avg_net_weight_kg', 'unit_of_measure'],
   COUNTED: ['unit_label'],
 };
 
-// Returns an error message, or null if the body is fine
+// Returns an error message, or null
 function checkProduct(body) {
   const { sku, name, category, standard_cost, product_type, type_data } = body;
   if (!sku || !name || !category || standard_cost == null) {
@@ -24,10 +23,7 @@ function checkProduct(body) {
   return null;
 }
 
-// Save the product's storage locations: [{ code, aisle?, capacity_slots?, quantity_at_location }]
-// A code that is not in the location table yet is created (it then needs an
-// aisle and capacity_slots). quantity_on_hand is updated by the stored_at triggers.
-// Returns an error message, or null.
+// Save the locations; a new code becomes a new location. Returns an error, or null
 async function saveLocations(conn, productId, locations) {
   for (const loc of locations) {
     const [found] = await conn.execute('SELECT location_id FROM location WHERE code = ?', [loc.code]);
@@ -48,23 +44,17 @@ async function saveLocations(conn, productId, locations) {
   return null;
 }
 
-// GET /api/products   is_low comes from the stored function is_low_stock (Lab 11);
-// locations is one text field, e.g. "A-01-1: 60, A-01-2: 20" (NULL if none)
+// GET /api/products
 exports.getAll = async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT p.*, is_low_stock(p.product_id) AS is_low,
-              (SELECT GROUP_CONCAT(CONCAT(l.code, ': ', s.quantity_at_location + 0e0) ORDER BY l.code SEPARATOR ', ')
-                 FROM stored_at s JOIN location l ON l.location_id = s.location_id
-                WHERE s.product_id = p.product_id) AS locations
-         FROM product p ORDER BY p.product_id`);
+    const [rows] = await pool.execute('SELECT * FROM v_stock_summary ORDER BY product_id');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// GET /api/products/:id   one product with a nested locations array (Lab 8)
+// GET /api/products/:id - with its locations
 exports.getById = async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM product WHERE product_id = ?', [req.params.id]);
@@ -79,23 +69,21 @@ exports.getById = async (req, res) => {
     product.locations = locations;
     res.json(product);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// GET /api/products/locations   every location (used to fill in aisle/capacity)
+// GET /api/products/locations
 exports.getLocations = async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM location ORDER BY code');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// POST /api/products
-// body: { sku, name, category, standard_cost, reorder_level, product_type, type_data, locations }
-// The product and its locations are saved in ONE transaction (Lab 9).
+// POST /api/products - product + locations in one transaction
 exports.create = async (req, res) => {
   const error = checkProduct(req.body);
   if (error) return res.status(400).json({ error });
@@ -120,15 +108,13 @@ exports.create = async (req, res) => {
   } catch (err) {
     await conn.rollback();
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'that SKU or location is already used' });
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   } finally {
     conn.release();
   }
 };
 
-// PUT /api/products/:id   same body as POST
-// The product's locations are replaced: old stored_at rows are deleted and
-// the new list is inserted, all in ONE transaction.
+// PUT /api/products/:id - replaces its locations, in one transaction
 exports.update = async (req, res) => {
   const error = checkProduct(req.body);
   if (error) return res.status(400).json({ error });
@@ -160,15 +146,13 @@ exports.update = async (req, res) => {
   } catch (err) {
     await conn.rollback();
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'that SKU or location is already used' });
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   } finally {
     conn.release();
   }
 };
 
-// DELETE /api/products/:id
-// A product that is in an order, or still has stock, cannot be deleted
-// (ON DELETE RESTRICT), so check both first.
+// DELETE /api/products/:id - refused while in orders or in stock
 exports.remove = async (req, res) => {
   try {
     const [items] = await pool.execute('SELECT order_id FROM order_item WHERE product_id = ?', [req.params.id]);
@@ -181,6 +165,6 @@ exports.remove = async (req, res) => {
     if (r.affectedRows === 0) return res.status(404).json({ error: 'product not found' });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };

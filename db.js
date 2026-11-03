@@ -1,5 +1,4 @@
-// db.js - one shared connection pool for the whole app (Lab 6 pattern)
-// The login comes from the .env file (Lab 10), not from this file.
+// One shared connection pool; the login comes from .env
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
@@ -11,7 +10,7 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
-  dateStrings: true,   // DATE/DATETIME come back as '2026-09-06', not shifted to UTC
+  dateStrings: true,   // dates as text, not shifted to UTC
 });
 
 module.exports = pool;

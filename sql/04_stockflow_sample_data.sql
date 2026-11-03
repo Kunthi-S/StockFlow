@@ -1,25 +1,9 @@
 
---  StockFlow: sample data
---  Run order: 01_stockflow_schema.sql -> stockflow_routines.sql -> this file
---
---  orders.total_amount and product.quantity_on_hand are NOT inserted here:
---  the triggers calculate them from order_item and stored_at.
---
---  Demo rows on purpose:
---    * low stock            : Drinking Water, Instant Noodles, Cooking Oil,
---                             Cordless Drill, Measuring Tape (0 in stock)
---    * no reorder level     : Safety Gloves (reorder_level NULL -> never low)
---    * stock in 2 locations : Drinking Water, Jasmine Rice
---    * can delete           : company 7 (no orders), product 10 (no stock/orders),
---                             location 6 (empty)
---    * delete is blocked    : company 1 (has orders), product 1 (has stock),
---                             order 1 (has a shipment)
--- =====================================================================
+-- 04_stockflow_sample_data.sql: demo rows (run last).
+-- Order totals and quantity_on_hand are filled in by the triggers.
 USE stockflow;
  
--- ---------------------------------------------------------------------
 -- COMPANY  (1-3 suppliers, 4-6 customers, 7 no orders yet)
--- ---------------------------------------------------------------------
 INSERT INTO company (company_id, name, street, city, postal_code, email) VALUES
  (1, 'Siam Fresh Supply Co.',    '99 Rama IV Rd',          'Bangkok',      '10500', 'sales@siamfresh.co.th'),
  (2, 'Chao Phraya Trading',      '45 Charoen Krung Rd',    'Bangkok',      '10100', 'order@cptrading.co.th'),
@@ -38,9 +22,7 @@ INSERT INTO company_phone (company_id, contact_phone) VALUES
  (5, '0861112222'),
  (6, '038123456');
  
--- ---------------------------------------------------------------------
 -- PRODUCT  (3 of each type; quantity_on_hand filled by triggers)
--- ---------------------------------------------------------------------
 INSERT INTO product (product_id, sku, name, category, standard_cost, reorder_level,
                      product_type, type_data) VALUES
  (1,  'PK-WAT-600', 'Drinking Water 600ml',   'Beverages',  4.5000,  100,  'PACKAGED',
@@ -64,9 +46,7 @@ INSERT INTO product (product_id, sku, name, category, standard_cost, reorder_lev
  (10, 'CT-TAP-MSR', 'Measuring Tape 5m',      'Tools',      89.0000, 15,   'COUNTED',
       JSON_OBJECT('unit_label', 'PIECE'));
  
--- ---------------------------------------------------------------------
 -- LOCATION  (location 6 stays empty)
--- ---------------------------------------------------------------------
 INSERT INTO location (location_id, code, capacity_slots, aisle) VALUES
  (1, 'A-01-1', 50, 'A'),
  (2, 'A-01-2', 50, 'A'),
@@ -75,9 +55,7 @@ INSERT INTO location (location_id, code, capacity_slots, aisle) VALUES
  (5, 'C-03-1', 20, 'C'),
  (6, 'C-03-2', 20, 'C');
  
--- ---------------------------------------------------------------------
 -- STORED_AT  (triggers set product.quantity_on_hand)
--- ---------------------------------------------------------------------
 INSERT INTO stored_at (location_id, product_id, quantity_at_location) VALUES
  (1, 1,  60),     -- Drinking Water   60 + 20 = 80   (reorder 100 -> LOW)
  (2, 1,  20),
@@ -92,10 +70,7 @@ INSERT INTO stored_at (location_id, product_id, quantity_at_location) VALUES
  (5, 9,  18);     -- Screwdriver Set  18             (reorder 10  -> ok)
                   -- Measuring Tape (10) has no stock row -> can be deleted
  
--- ---------------------------------------------------------------------
 -- ORDERS  (IN = purchase from supplier, OUT = sale to customer)
--- total_amount filled by triggers
--- ---------------------------------------------------------------------
 INSERT INTO orders (order_id, order_date, status, direction, company_id) VALUES
  (1,  '2026-09-05 09:30:00', 'RECEIVED',   'IN',  1),
  (2,  '2026-09-12 14:00:00', 'RECEIVED',   'IN',  2),
@@ -108,9 +83,7 @@ INSERT INTO orders (order_id, order_date, status, direction, company_id) VALUES
  (9,  '2026-10-30 15:30:00', 'CANCELLED',  'OUT', 5),
  (10, '2026-11-01 09:00:00', 'DRAFT',      'OUT', 6);
  
--- ---------------------------------------------------------------------
 -- ORDER_ITEM  (line_total is generated; triggers set orders.total_amount)
--- ---------------------------------------------------------------------
 INSERT INTO order_item (order_id, product_id, quantity, unit_price) VALUES
  (1, 1, 200,   4.50), (1, 2, 300,   5.00), (1, 4, 400,  32.00),
  (2, 5,  80,  48.00), (2, 6, 250,  25.00), (2, 3, 100,  45.00),
@@ -123,9 +96,7 @@ INSERT INTO order_item (order_id, product_id, quantity, unit_price) VALUES
  (9, 4,  20,  45.00),
  (10, 7,  2, 2490.00);
  
--- ---------------------------------------------------------------------
 -- SHIPMENT  (1:1 with orders; only orders that have been sent)
--- ---------------------------------------------------------------------
 INSERT INTO shipment (shipment_id, order_id, tracking_number, freight_date,
                       expected_date, actual_date, destination_address) VALUES
  (1, 1, 'TH0905000101', '2026-09-06', '2026-09-09', '2026-09-08',
@@ -142,11 +113,3 @@ INSERT INTO shipment (shipment_id, order_id, tracking_number, freight_date,
      '7 Sukhumvit Rd, Chon Buri 20000'),
  (7, 7, 'TH1022000707', '2026-10-23', '2026-11-05', NULL,
      'StockFlow Warehouse, 1 Rangsit-Nakhon Nayok Rd, Pathum Thani 12120');
- 
--- ---------------------------------------------------------------------
--- Quick check
--- ---------------------------------------------------------------------
--- SELECT order_id, direction, status, total_amount FROM orders;
--- SELECT sku, name, quantity_on_hand, reorder_level,
---        is_low_stock(product_id) AS low_stock FROM product;
- 

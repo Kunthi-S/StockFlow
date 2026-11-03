@@ -1,20 +1,10 @@
--- 01_stockflow_schema.sql
--- =====================================================================
---  StockFlow: physical schema, revision 3  (MySQL 8.0.16+ / MariaDB 10.6+)
---  rev 3: product subtypes stored as product_type + type_data JSON
---  Source: StockFlow_phy_rela_2.xlsx
---  Tables, keys, indexes and CHECK constraints only.
---  Procedures, triggers and functions live in stockflow_routines.sql
---  (run this file first, then that one).
--- =====================================================================
+-- 01_stockflow_schema.sql: tables, keys, indexes and CHECKs (run first)
 
 DROP DATABASE IF EXISTS stockflow;
 CREATE DATABASE stockflow;
 USE stockflow;
 
--- ---------------------------------------------------------------------
 -- COMPANY  (trading partner: customer or supplier)
--- ---------------------------------------------------------------------
 CREATE TABLE company (
     company_id    INT UNSIGNED NOT NULL AUTO_INCREMENT,
     name          VARCHAR(150) NOT NULL,
@@ -32,12 +22,10 @@ CREATE TABLE company_phone (
     CONSTRAINT pk_company_phone PRIMARY KEY (company_id, contact_phone),
     CONSTRAINT fk_phone_company FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE CASCADE -- update/ delete according to company_id
+        ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- ---------------------------------------------------------------------
 -- ORDERS  (COMPANY 1 : N ORDERS via "places")
--- ---------------------------------------------------------------------
 CREATE TABLE orders (
     order_id      INT UNSIGNED           NOT NULL AUTO_INCREMENT,
     order_date    DATETIME               NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -49,15 +37,13 @@ CREATE TABLE orders (
     CONSTRAINT pk_orders          PRIMARY KEY (order_id),
     CONSTRAINT fk_orders_company  FOREIGN KEY (company_id)
         REFERENCES company (company_id)
-        ON UPDATE CASCADE ON DELETE RESTRICT, -- Prevents deleting a company if any orders still reference it.
+        ON UPDATE CASCADE ON DELETE RESTRICT, -- no deleting a company that has orders
     CONSTRAINT ck_orders_total    CHECK (total_amount >= 0),
     INDEX idx_orders_company (company_id),
     INDEX idx_orders_status_date (status, order_date)
 );
 
--- ---------------------------------------------------------------------
 -- SHIPMENT  (SHIPMENT 1 : 1 ORDERS via "fulfills")
--- ---------------------------------------------------------------------
 CREATE TABLE shipment (
     shipment_id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
     order_id             INT UNSIGNED NOT NULL,
@@ -75,16 +61,7 @@ CREATE TABLE shipment (
     CONSTRAINT ck_shipment_actual    CHECK (actual_date   >= freight_date)
 );
 
--- ---------------------------------------------------------------------
--- PRODUCT
--- product_type + type_data (JSON) replace the PACKAGED / WEIGHED / COUNTED
--- subtype tables. One row = one type, so a product can never have two
--- types (disjoint) or none (total). type_data are validated in Node.
---
---   PACKAGED {"units_per_pack": 12, "package_type": "CASE", "pack_barcode": "12345678901234"}
---   WEIGHED  {"tare_weight_kg": 0.1, "avg_net_weight_kg": 5, "unit_of_measure": "KG"}
---   COUNTED  {"unit_label": "PIECE", "is_serialized": true}
--- ---------------------------------------------------------------------
+-- PRODUCT  (one type per product; its fields are in type_data JSON)
 CREATE TABLE product (
     product_id        INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     sku               VARCHAR(30)   UNIQUE NOT NULL,
@@ -102,9 +79,7 @@ CREATE TABLE product (
     INDEX idx_product_category (category)
 );
 
--- ---------------------------------------------------------------------
 -- ORDER_ITEM  (weak entity; ORDERS 1:N ORDER_ITEM, ORDER_ITEM N:1 PRODUCT)
--- ---------------------------------------------------------------------
 CREATE TABLE order_item (
     order_id    INT UNSIGNED  NOT NULL,
     product_id  INT UNSIGNED  NOT NULL,
@@ -123,9 +98,7 @@ CREATE TABLE order_item (
     INDEX idx_order_item_product (product_id)
 );
 
--- ---------------------------------------------------------------------
 -- LOCATION
--- ---------------------------------------------------------------------
 CREATE TABLE location (
     location_id     INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     code            VARCHAR(15)   NOT NULL,              -- e.g. A-03-2
@@ -136,9 +109,7 @@ CREATE TABLE location (
     CONSTRAINT ck_location_cap    CHECK (capacity_slots > 0)
 );
 
--- ---------------------------------------------------------------------
 -- STORED_AT  (PRODUCT M : N LOCATION, with relationship attribute)
--- ---------------------------------------------------------------------
 CREATE TABLE stored_at (
     location_id           INT UNSIGNED  NOT NULL,
     product_id            INT UNSIGNED  NOT NULL,

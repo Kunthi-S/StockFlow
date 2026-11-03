@@ -1,4 +1,3 @@
-/* public/style.css */
 :root { --accent:#7c5cd6; --green:#2f9e4f; --blue:#3b6fd8; --yellow:#b8860b; --red:#d64545; --muted:#6b7084; --bg:#f5f6fa; --line:#e2e4ec; }
 * { box-sizing: border-box; }
 body { margin:0; display:flex; min-height:100vh; font-family: Arial, sans-serif; font-size:14px; background:var(--bg); color:#1f2330; }
@@ -89,6 +88,12 @@ input, select { padding:7px; border:1px solid var(--line); border-radius:4px; fo
 .chip-x:hover { color:var(--red); }
 .phone-form { display:flex; gap:4px; }
 .phone-form input { width:120px; padding:3px 6px; font-size:12px; }
+
+/* read-only mode */
+.read-only .edit-only, .read-only .actions button:not([data-view]), .read-only .phone-form,
+.read-only .chip-x, .read-only .detail-row button, .read-only .detail-row .hint { display:none !important; }
+.read-only .detail-row form { pointer-events:none; }
+.read-only .logo::after { content:" · view only"; color:var(--muted); font-size:12px; font-weight:normal; }
 
 /* small screens */
 @media (max-width: 800px) {

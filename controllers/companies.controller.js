@@ -1,5 +1,5 @@
-// controllers/companies.controller.js
 const pool = require('../db');
+const { fail } = require('../utils/http');
 
 // GET /api/companies
 exports.getAll = async (req, res) => {
@@ -7,7 +7,7 @@ exports.getAll = async (req, res) => {
     const [rows] = await pool.execute('SELECT * FROM company ORDER BY company_id');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
@@ -18,13 +18,11 @@ exports.getById = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'company not found' });
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// POST /api/companies   body: { name, email, street, city, postal_code }
-// Uses the stored procedure p_insert_company (Lab 11). Its last argument is an
-// OUT parameter, so the CALL and the SELECT @id must run on the same connection.
+// POST /api/companies - the OUT @id must be read on the same connection
 exports.create = async (req, res) => {
   const { name, email, street, city, postal_code } = req.body;
   if (!name || !email || !street || !city || !postal_code) {
@@ -36,15 +34,13 @@ exports.create = async (req, res) => {
     const [rows] = await conn.query('SELECT @id AS company_id');
     res.status(201).json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   } finally {
     conn.release();
   }
 };
 
-// PUT /api/companies/:id   body: { name, email, street, city, postal_code }
-// p_update_company signals 45000 'company not found' for an unknown id.
-// The last argument (phones) is NULL, so the company's phones are kept.
+// PUT /api/companies/:id - phones are kept (NULL)
 exports.update = async (req, res) => {
   const { name, email, street, city, postal_code } = req.body;
   if (!name || !email || !street || !city || !postal_code) {
@@ -56,13 +52,11 @@ exports.update = async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     if (err.sqlState === '45000') return res.status(404).json({ error: err.sqlMessage });
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// DELETE /api/companies/:id
-// Its phones are removed by ON DELETE CASCADE. A company that still has
-// orders cannot be deleted (ON DELETE RESTRICT), so check that first.
+// DELETE /api/companies/:id - refused while it has orders
 exports.remove = async (req, res) => {
   try {
     const [orders] = await pool.execute('SELECT order_id FROM orders WHERE company_id = ?', [req.params.id]);
@@ -72,7 +66,7 @@ exports.remove = async (req, res) => {
     if (r.affectedRows === 0) return res.status(404).json({ error: 'company not found' });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
@@ -83,11 +77,11 @@ exports.getPhones = async (req, res) => {
       'SELECT contact_phone FROM company_phone WHERE company_id = ?', [req.params.id]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// POST /api/companies/:id/phones   body: { contact_phone }
+// POST /api/companies/:id/phones
 exports.addPhone = async (req, res) => {
   const { contact_phone } = req.body;
   if (!contact_phone) return res.status(400).json({ error: 'contact_phone is required' });
@@ -97,7 +91,7 @@ exports.addPhone = async (req, res) => {
   } catch (err) {
     if (err.code === 'ER_NO_REFERENCED_ROW_2') return res.status(404).json({ error: 'company not found' });
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'phone already added' });
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
@@ -110,6 +104,6 @@ exports.removePhone = async (req, res) => {
     if (r.affectedRows === 0) return res.status(404).json({ error: 'phone not found' });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };

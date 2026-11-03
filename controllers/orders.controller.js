@@ -1,25 +1,17 @@
-// controllers/orders.controller.js
 const pool = require('../db');
+const { fail } = require('../utils/http');
 
-// GET /api/orders   newest first, with the company's name (JOIN, Lab 8)
-// and its shipment's tracking number / dates (LEFT JOIN: not every order has one)
+// GET /api/orders
 exports.getAll = async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT o.order_id, o.order_date, o.status, o.direction, o.total_amount,
-              o.company_id, c.name AS company_name,
-              s.tracking_number, s.expected_date, s.actual_date
-         FROM orders o
-         JOIN company c ON c.company_id = o.company_id
-         LEFT JOIN shipment s ON s.order_id = o.order_id
-        ORDER BY o.order_date DESC`);
+    const [rows] = await pool.execute('SELECT * FROM v_order_summary ORDER BY order_date DESC');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// GET /api/orders/:id   one order with a nested items array and its shipment (or null)
+// GET /api/orders/:id - with its items and shipment
 exports.getById = async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -41,15 +33,11 @@ exports.getById = async (req, res) => {
     order.shipment = shipments[0] ?? null;
     res.json(order);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// POST /api/orders
-// body: { company_id, direction: 'IN' | 'OUT', items: [{ product_id, quantity, unit_price }] }
-// The order and its items are saved in ONE transaction (Lab 9): if any item
-// fails, the order is rolled back too. total_amount is filled in by the
-// order_item triggers (Lab 11), so it is not set here.
+// POST /api/orders - order + items in one transaction; triggers set the total
 exports.create = async (req, res) => {
   const { company_id, direction, items } = req.body;
   if (!company_id || (direction !== 'IN' && direction !== 'OUT')) {
@@ -80,7 +68,7 @@ exports.create = async (req, res) => {
     await conn.rollback();
     if (err.code === 'ER_NO_REFERENCED_ROW_2') return res.status(404).json({ error: 'company or product not found' });
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'the same product is listed twice' });
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   } finally {
     conn.release();
   }
@@ -88,15 +76,12 @@ exports.create = async (req, res) => {
 
 const STATUSES = ['DRAFT', 'CONFIRMED', 'IN_TRANSIT', 'RECEIVED', 'SHIPPED', 'CANCELLED'];
 
-// An order's items are in stock once it is done: an IN order adds them when
-// it is RECEIVED, an OUT order takes them out when it is SHIPPED.
+// IN orders add stock when RECEIVED, OUT orders take it out when SHIPPED
 const movesStock = (direction, status) =>
   (direction === 'IN' && status === 'RECEIVED') || (direction === 'OUT' && status === 'SHIPPED');
 
-// Add (sign 1) or take out (sign -1) every item of the order in stored_at.
-// Stock is added to the location holding the most of the product and taken
-// from the fullest locations first. quantity_on_hand follows via the
-// stored_at triggers. Returns an error message, or null.
+// Add (sign 1) or take out (-1) each item in stored_at, fullest location first.
+// Returns an error message, or null.
 async function moveStock(conn, orderId, sign) {
   const [items] = await conn.execute(
     `SELECT oi.product_id, oi.quantity, p.sku
@@ -114,7 +99,7 @@ async function moveStock(conn, orderId, sign) {
       await conn.execute(
         'UPDATE stored_at SET quantity_at_location = quantity_at_location + ? WHERE location_id = ? AND product_id = ?',
         [sign * amount, loc.location_id, it.product_id]);
-      left = Math.round((left - amount) * 1000) / 1000;   // quantities have 3 decimals
+      left = Math.round((left - amount) * 1000) / 1000;   // 3 decimals
       if (left === 0) break;
     }
     if (left > 0) return 'not enough stock of ' + it.sku;
@@ -122,10 +107,7 @@ async function moveStock(conn, orderId, sign) {
   return null;
 }
 
-// DELETE /api/orders/:id
-// The order's items are removed by ON DELETE CASCADE. An order that already
-// has a shipment cannot be deleted (ON DELETE RESTRICT), so check that first.
-// Neither can an order whose stock has moved, or the stock would be wrong.
+// DELETE /api/orders/:id - refused with a shipment or once its stock has moved
 exports.remove = async (req, res) => {
   try {
     const [shipments] = await pool.execute('SELECT shipment_id FROM shipment WHERE order_id = ?', [req.params.id]);
@@ -139,13 +121,11 @@ exports.remove = async (req, res) => {
     if (r.affectedRows === 0) return res.status(404).json({ error: 'order not found' });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
-// PATCH /api/orders/:id/status   body: { status }
-// The status and the stock it moves are saved in ONE transaction (Lab 9).
-// Changing the status back (e.g. SHIPPED -> CONFIRMED) moves the stock back.
+// PATCH /api/orders/:id/status - status and stock change in one transaction
 exports.updateStatus = async (req, res) => {
   const { status } = req.body;
   if (!STATUSES.includes(status)) {
@@ -164,7 +144,7 @@ exports.updateStatus = async (req, res) => {
     const wasMoved = movesStock(direction, rows[0].status);
     const isMoved = movesStock(direction, status);
     if (wasMoved !== isMoved) {
-      // IN adds stock, OUT takes it out; undoing does the opposite
+      // undoing a status does the opposite
       const error = await moveStock(conn, req.params.id, (direction === 'IN') === isMoved ? 1 : -1);
       if (error) {
         await conn.rollback();
@@ -176,16 +156,13 @@ exports.updateStatus = async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   } finally {
     conn.release();
   }
 };
 
-// PUT /api/orders/:id/shipment
-// body: { tracking_number, freight_date, expected_date, actual_date, destination_address }
-// Creates the order's shipment if it has none (1:1), otherwise updates it.
-// Empty strings are saved as NULL; only destination_address is required.
+// PUT /api/orders/:id/shipment - add or update the order's one shipment
 exports.saveShipment = async (req, res) => {
   const value = (v) => (v === '' || v === undefined ? null : v);
   const { destination_address } = req.body;
@@ -211,7 +188,7 @@ exports.saveShipment = async (req, res) => {
     if (err.code === 'ER_CHECK_CONSTRAINT_VIOLATED') {
       return res.status(400).json({ error: 'expected and delivered dates cannot be before the freight date' });
     }
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
 
@@ -222,6 +199,6 @@ exports.removeShipment = async (req, res) => {
     if (r.affectedRows === 0) return res.status(404).json({ error: 'shipment not found' });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    fail(res, err);
   }
 };
