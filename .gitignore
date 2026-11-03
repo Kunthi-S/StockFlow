@@ -8,3 +8,9 @@ npm-debug.log*
 # OS/editor cruft
 .DS_Store
 .vscode/
+
+
+# Secrets
+.env
+.env.*
+!.env.example
