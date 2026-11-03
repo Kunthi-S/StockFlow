@@ -15,6 +15,7 @@
       <button data-page="dashboard">Dashboard</button>
       <button data-page="orders">Orders</button>
       <button data-page="products">Products</button>
+      <button data-page="locations">Locations</button>
       <button data-page="companies">Companies</button>
     </nav>
   </aside>
@@ -122,7 +123,7 @@
       </div>
 
       <div class="panel">
-        <div class="panel-header"><h2>All orders</h2></div>
+        <div class="panel-header"><h2>All orders</h2><form class="search-form" data-box="ordersSearch"><input type="search" id="ordersSearch" placeholder="Search by company"><button class="btn-small">Search</button></form></div>
         <div class="panel-body">
           <table>
             <thead>
@@ -186,11 +187,9 @@
 
           <div class="subform">
             <h3>Storage locations</h3>
-            <p class="hint">Type an existing code to reuse it. A new code also needs an aisle and capacity.</p>
+            <p class="hint">New locations are added on the Locations page.</p>
             <div class="form-grid">
-              <label>Location code <input id="locCode" type="text" maxlength="15"></label>
-              <label>Aisle (new only) <input id="locAisle" type="text" maxlength="10"></label>
-              <label>Capacity slots (new only) <input id="locCapacity" type="number" min="1" step="1"></label>
+              <label>Location <select id="locCode"></select></label>
               <label>Quantity here <input id="locQty" type="number" min="0" step="any"></label>
             </div>
             <button type="button" id="addLocationBtn" class="btn-small">Add location</button>
@@ -205,13 +204,48 @@
       </div>
 
       <div class="panel">
-        <div class="panel-header"><h2>All products</h2></div>
+        <div class="panel-header"><h2>All products</h2><form class="search-form" data-box="productsSearch"><input type="search" id="productsSearch" placeholder="Search by name"><button class="btn-small">Search</button></form></div>
         <div class="panel-body">
           <table>
             <thead>
               <tr><th>SKU</th><th>Name</th><th>Category</th><th>Type</th><th>On hand</th><th>Locations</th><th>Reorder</th><th>Cost (THB)</th><th></th></tr>
             </thead>
             <tbody id="productsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Locations -->
+    <section id="locations" class="page">
+      <div class="page-header">
+        <h1>Locations</h1>
+      </div>
+
+      <div class="panel edit-only">
+        <div class="panel-header"><h2 id="locationFormTitle">Add location</h2></div>
+        <form id="locationForm" class="panel-body">
+          <div class="form-grid">
+            <label>Aisle <input name="aisle" type="text" maxlength="10" placeholder="e.g. A" required></label>
+            <label>Rack <input name="rack" type="number" min="1" max="99" step="1" required></label>
+            <label>Level <input name="level" type="number" min="1" max="9" step="1" required></label>
+          </div>
+          <p class="hint">Location code: <strong id="locationCode">–</strong></p>
+          <div class="form-actions">
+            <button type="submit" id="locationSaveBtn" class="btn">Add location</button>
+            <button type="button" id="locationCancelBtn" class="btn-small hide">Cancel edit</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2>All locations</h2><form class="search-form" data-box="locationsSearch"><input type="search" id="locationsSearch" placeholder="Search by code"><button class="btn-small">Search</button></form></div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>Code</th><th>Aisle</th><th>Rack</th><th>Level</th><th>Products</th><th>Units stored</th><th>SKUs</th><th></th></tr>
+            </thead>
+            <tbody id="locationsBody"></tbody>
           </table>
         </div>
       </div>
@@ -241,7 +275,7 @@
       </div>
 
       <div class="panel">
-        <div class="panel-header"><h2>All companies</h2></div>
+        <div class="panel-header"><h2>All companies</h2><form class="search-form" data-box="companiesSearch"><input type="search" id="companiesSearch" placeholder="Search by name"><button class="btn-small">Search</button></form></div>
         <div class="panel-body">
           <table>
             <thead>

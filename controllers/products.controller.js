@@ -1,5 +1,5 @@
 const pool = require('../db');
-const { fail } = require('../utils/http');
+const { fail, like } = require('../utils/http');
 
 // The type_data fields each product type needs
 const REQUIRED_TYPE_FIELDS = {
@@ -23,31 +23,23 @@ function checkProduct(body) {
   return null;
 }
 
-// Save the locations; a new code becomes a new location. Returns an error, or null
+// Save the product's stock per location (existing codes only). Returns an error, or null
 async function saveLocations(conn, productId, locations) {
   for (const loc of locations) {
     const [found] = await conn.execute('SELECT location_id FROM location WHERE code = ?', [loc.code]);
-    let locationId;
-    if (found.length > 0) {
-      locationId = found[0].location_id;
-    } else {
-      if (!loc.aisle || !loc.capacity_slots) return 'new location ' + loc.code + ' needs an aisle and capacity_slots';
-      const [r] = await conn.execute(
-        'INSERT INTO location (code, capacity_slots, aisle) VALUES (?, ?, ?)',
-        [loc.code, loc.capacity_slots, loc.aisle]);
-      locationId = r.insertId;
-    }
+    if (found.length === 0) return 'unknown location ' + loc.code;
     await conn.execute(
       'INSERT INTO stored_at (location_id, product_id, quantity_at_location) VALUES (?, ?, ?)',
-      [locationId, productId, loc.quantity_at_location ?? 0]);
+      [found[0].location_id, productId, loc.quantity_at_location ?? 0]);
   }
   return null;
 }
 
-// GET /api/products
+// GET /api/products?q=name
 exports.getAll = async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM v_stock_summary ORDER BY product_id');
+    const [rows] = await pool.execute(
+      'SELECT * FROM v_stock_summary WHERE name LIKE ? ORDER BY product_id', [like(req.query.q)]);
     res.json(rows);
   } catch (err) {
     fail(res, err);
@@ -61,23 +53,13 @@ exports.getById = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'product not found' });
 
     const [locations] = await pool.execute(
-      `SELECT l.code, l.aisle, l.capacity_slots, s.quantity_at_location
+      `SELECT l.code, l.aisle, s.quantity_at_location
          FROM stored_at s JOIN location l ON l.location_id = s.location_id
         WHERE s.product_id = ?
         ORDER BY l.code`, [req.params.id]);
     const product = rows[0];
     product.locations = locations;
     res.json(product);
-  } catch (err) {
-    fail(res, err);
-  }
-};
-
-// GET /api/products/locations
-exports.getLocations = async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM location ORDER BY code');
-    res.json(rows);
   } catch (err) {
     fail(res, err);
   }

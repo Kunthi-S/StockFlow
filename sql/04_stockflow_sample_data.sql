@@ -47,13 +47,13 @@ INSERT INTO product (product_id, sku, name, category, standard_cost, reorder_lev
       JSON_OBJECT('unit_label', 'PIECE'));
  
 -- LOCATION  (location 6 stays empty)
-INSERT INTO location (location_id, code, capacity_slots, aisle) VALUES
- (1, 'A-01-1', 50, 'A'),
- (2, 'A-01-2', 50, 'A'),
- (3, 'B-02-1', 40, 'B'),
- (4, 'B-02-2', 40, 'B'),
- (5, 'C-03-1', 20, 'C'),
- (6, 'C-03-2', 20, 'C');
+INSERT INTO location (location_id, aisle, rack, level) VALUES   -- code is generated
+ (1, 'A', 1, 1),     -- A-01-1
+ (2, 'A', 1, 2),     -- A-01-2
+ (3, 'B', 2, 1),     -- B-02-1
+ (4, 'B', 2, 2),     -- B-02-2
+ (5, 'C', 3, 1),     -- C-03-1
+ (6, 'C', 3, 2);     -- C-03-2
  
 -- STORED_AT  (triggers set product.quantity_on_hand)
 INSERT INTO stored_at (location_id, product_id, quantity_at_location) VALUES

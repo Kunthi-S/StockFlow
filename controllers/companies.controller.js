@@ -1,10 +1,11 @@
 const pool = require('../db');
-const { fail } = require('../utils/http');
+const { fail, like } = require('../utils/http');
 
-// GET /api/companies
+// GET /api/companies?q=name
 exports.getAll = async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM company ORDER BY company_id');
+    const [rows] = await pool.execute(
+      'SELECT * FROM company WHERE name LIKE ? ORDER BY company_id', [like(req.query.q)]);
     res.json(rows);
   } catch (err) {
     fail(res, err);

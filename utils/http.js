@@ -8,4 +8,7 @@ function fail(res, err) {
   res.status(500).json({ error: 'Something went wrong. Please try again later.' });
 }
 
-module.exports = { fail };
+// ?q= search text as a LIKE value: the % goes in the value, never in the SQL
+const like = (q) => '%' + String(q ?? '').trim() + '%';
+
+module.exports = { fail, like };

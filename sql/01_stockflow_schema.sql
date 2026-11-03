@@ -101,12 +101,14 @@ CREATE TABLE order_item (
 -- LOCATION
 CREATE TABLE location (
     location_id     INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    code            VARCHAR(15)   NOT NULL,              -- e.g. A-03-2
-    capacity_slots  INT UNSIGNED  NOT NULL,
     aisle           VARCHAR(10)   NOT NULL,
+    rack            TINYINT UNSIGNED NOT NULL,
+    level           TINYINT UNSIGNED NOT NULL,
+    code            VARCHAR(15) AS (CONCAT(aisle, '-', LPAD(rack, 2, '0'), '-', level)) STORED,   -- e.g. A-03-2
     CONSTRAINT pk_location        PRIMARY KEY (location_id),
     CONSTRAINT uq_location_code   UNIQUE (code),
-    CONSTRAINT ck_location_cap    CHECK (capacity_slots > 0)
+    CONSTRAINT ck_location_rack   CHECK (rack > 0),
+    CONSTRAINT ck_location_level  CHECK (level > 0)
 );
 
 -- STORED_AT  (PRODUCT M : N LOCATION, with relationship attribute)

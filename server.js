@@ -4,10 +4,11 @@ const express = require('express');
 const { fail } = require('./utils/http');
 const companiesRouter = require('./routes/companies.routes');
 const productsRouter = require('./routes/products.routes');
+const locationsRouter = require('./routes/locations.routes');
 const ordersRouter = require('./routes/orders.routes');
 const dashboardRouter = require('./routes/dashboard.routes');
 
-// READ_ONLY=true: for workers who may only look (with the stockflow_viewer account)
+// READ_ONLY=true: for workers who may only look (with the stockflow_readonly account)
 const READ_ONLY = process.env.READ_ONLY === 'true';
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api', (req, res, next) => {
 
 app.use('/api/companies', companiesRouter);
 app.use('/api/products', productsRouter);
+app.use('/api/locations', locationsRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/dashboard', dashboardRouter);
 

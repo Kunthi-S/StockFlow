@@ -23,6 +23,12 @@ function showMessage(text, isError) {
   $("message").className = !text ? "message" : isError ? "message error" : "message success";
 }
 
+// GET a list filtered by a search box's text (?q=)
+const search = (url, box) => api("GET", `${url}?q=${encodeURIComponent($(box).value.trim())}`);
+
+// Empty-table text: "No matches." while searching
+const none = (box, text) => ($(box).value.trim() ? "No matches." : text);
+
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
@@ -78,6 +84,7 @@ const loaders = {
   dashboard: () => loadDashboard(),
   orders: () => { loadOrders(); loadOrderOptions(); renderItems(); },
   products: () => { loadProducts(); loadLocations(); },
+  locations: () => loadLocationTable(),
   companies: () => loadCompanies(),
 };
 
@@ -131,10 +138,10 @@ const shipmentCell = (o) => !o.tracking_number && !o.expected_date ? "–"
       ? "delivered " + formatDate(o.actual_date) : "due " + formatDate(o.expected_date)}</div>`;
 
 async function loadOrders() {
-  const orders = await api("GET", "/api/orders");
+  const orders = await search("/api/orders", "ordersSearch");
   if (!orders) return;
   $("ordersBody").innerHTML = orders.length === 0
-    ? '<tr><td colspan="8" class="empty">No orders yet.</td></tr>'
+    ? `<tr><td colspan="8" class="empty">${none("ordersSearch", "No orders yet.")}</td></tr>`
     : orders.map((o) => `<tr>
         <td>${o.order_id}</td><td>${badge(o.direction)}</td><td>${escapeHtml(o.company_name)}</td>
         <td class="nowrap">${formatDate(o.order_date)}</td>
@@ -292,10 +299,10 @@ let knownLocations = [];     // every location already in the database
 let productLocations = [];   // locations added to the product in the form
 
 async function loadProducts() {
-  const list = await api("GET", "/api/products");
+  const list = await search("/api/products", "productsSearch");
   if (!list) return;
   $("productsBody").innerHTML = list.length === 0
-    ? '<tr><td colspan="9" class="empty">No products yet. Add the first one above.</td></tr>'
+    ? `<tr><td colspan="9" class="empty">${none("productsSearch", "No products yet. Add the first one above.")}</td></tr>`
     : list.map((p) => `<tr>
         <td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.category)}</td>
         <td><span class="badge type">${p.product_type.toLowerCase()}</span></td>
@@ -309,7 +316,10 @@ async function loadProducts() {
 }
 
 async function loadLocations() {
-  knownLocations = await api("GET", "/api/products/locations") ?? [];
+  knownLocations = await api("GET", "/api/locations") ?? [];
+  $("locCode").innerHTML = knownLocations.length === 0
+    ? '<option value="">No locations yet – add one on the Locations page</option>'
+    : knownLocations.map((l) => `<option value="${escapeHtml(l.code)}">${escapeHtml(l.code)} (aisle ${escapeHtml(l.aisle)})</option>`).join("");
 }
 
 // Show only the selected type's details box
@@ -325,24 +335,15 @@ function renderLocations() {
       <button type="button" class="btn-small danger" data-index="${i}">Remove</button></li>`).join("");
 }
 
-// A known location code fills in its aisle and capacity
-$("locCode").addEventListener("change", () => {
-  const known = knownLocations.find((l) => l.code === $("locCode").value.trim());
-  if (!known) return;
-  $("locAisle").value = known.aisle;
-  $("locCapacity").value = known.capacity_slots;
-});
-
 $("addLocationBtn").addEventListener("click", () => {
-  const code = $("locCode").value.trim();
-  if (!code) return showMessage("Enter a location code first.", true);
-  productLocations.push({
-    code,
-    aisle: $("locAisle").value.trim() || undefined,
-    capacity_slots: Number($("locCapacity").value) || undefined,
-    quantity_at_location: Number($("locQty").value),
-  });
-  for (const id of ["locCode", "locAisle", "locCapacity", "locQty"]) $(id).value = "";
+  const code = $("locCode").value;
+  const quantity = Number($("locQty").value);
+  if (!code) return showMessage("Add a location on the Locations page first.", true);
+  // Same location again: add to its quantity
+  const same = productLocations.find((l) => l.code === code);
+  if (same) same.quantity_at_location += quantity;
+  else productLocations.push({ code, quantity_at_location: quantity });
+  $("locQty").value = "";
   renderLocations();
 });
 
@@ -384,19 +385,71 @@ $("productsBody").addEventListener("click", async (e) => {
 
 $("productCancelBtn").addEventListener("click", () => editProduct());
 
+// ---- Locations
+
+let locations = [];
+
+async function loadLocationTable() {
+  const list = await search("/api/locations", "locationsSearch");
+  if (!list) return;
+  locations = list;
+  $("locationsBody").innerHTML = list.length === 0
+    ? `<tr><td colspan="8" class="empty">${none("locationsSearch", "No locations yet. Add the first one above.")}</td></tr>`
+    : list.map((l) => `<tr>
+        <td>${escapeHtml(l.code)}</td><td>${escapeHtml(l.aisle)}</td><td>${l.rack}</td><td>${l.level}</td>
+        <td>${l.products}</td><td>${Number(l.units)}</td><td class="sub">${escapeHtml(l.skus ?? "–")}</td>
+        <td class="actions">
+          <button class="btn-small" data-edit="${l.location_id}">Edit</button>
+          <button class="btn-small danger" data-delete="${l.location_id}">Delete</button>
+        </td></tr>`).join("");
+}
+
+// The code the database will build from aisle, rack and level, e.g. A-01-1
+function showLocationCode() {
+  const { aisle, rack, level } = formValues($("locationForm"));
+  $("locationCode").textContent = aisle && rack && level
+    ? `${aisle.toUpperCase()}-${String(rack).padStart(2, "0")}-${level}` : "–";
+}
+
+function editLocation(l) {
+  setEditing("location", l?.location_id, l);
+  showLocationCode();
+}
+
+$("locationForm").addEventListener("input", showLocationCode);
+
+$("locationForm").onsubmit = async (e) => {
+  e.preventDefault();
+  if (!await saveForm("location", "/api/locations", formValues(e.target))) return;
+  editLocation();
+  loadLocationTable();
+};
+
+$("locationsBody").addEventListener("click", async (e) => {
+  const d = e.target.dataset;
+  if (d.edit) editLocation(locations.find((l) => l.location_id == d.edit));
+  if (d.delete && confirm(`Delete location #${d.delete}?`) && await api("DELETE", `/api/locations/${d.delete}`)) {
+    showMessage(`Location #${d.delete} deleted.`);
+    if ($("locationForm").dataset.id === d.delete) editLocation();
+    loadLocationTable();
+  }
+});
+
+$("locationCancelBtn").addEventListener("click", () => editLocation());
+
 // ---- Companies
 
 let companies = [];
 
 async function loadCompanies() {
-  const list = await api("GET", "/api/companies");
+  const list = await search("/api/companies", "companiesSearch");
   if (!list) return;
   companies = list;
   // Load every company's phones in parallel
   const phones = await Promise.all(companies.map((c) => api("GET", `/api/companies/${c.company_id}/phones`)));
 
   $("companiesBody").innerHTML = companies.length === 0
-    ? '<tr><td colspan="6" class="empty">No companies yet. Add the first one above.</td></tr>'
+    ? `<tr><td colspan="6" class="empty">${none("companiesSearch", "No companies yet. Add the first one above.")}</td></tr>`
     : companies.map((c, i) => `<tr>
         <td>${c.company_id}</td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.email)}</td>
         <td>${escapeHtml(c.street)}, ${escapeHtml(c.city)} ${escapeHtml(c.postal_code)}</td>
@@ -445,6 +498,13 @@ $("companiesBody").addEventListener("click", async (e) => {
 });
 
 $("companyCancelBtn").addEventListener("click", () => setEditing("company"));
+
+// Search buttons reload their list (an empty box shows everything)
+const searchLoaders = { ordersSearch: loadOrders, productsSearch: loadProducts,
+                        locationsSearch: loadLocationTable, companiesSearch: loadCompanies };
+for (const form of document.querySelectorAll(".search-form")) {
+  form.onsubmit = (e) => { e.preventDefault(); searchLoaders[form.dataset.box](); };
+}
 
 // Read-only mode: style.css hides the edit controls
 api("GET", "/api/config").then((c) => document.body.classList.toggle("read-only", Boolean(c?.readOnly)));
